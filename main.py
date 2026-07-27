@@ -46,6 +46,7 @@ C2 = "#341f63"   # variante oscura para hover
 C3 = "#e6d194"   # borde dorado de las tarjetas (card-menu-principal)
 ACCENT = "#a11a5c"   # magenta de iconos/secciones (arrow-icon-section)
 GREEN  = "#64ad0b"   # verde de botones de acción (btn-custom-of)
+BLUE   = "#2856ad"   # azul de subtítulos de tarjeta (tittle-sub-menu)
 
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -569,8 +570,8 @@ body{{margin:0;background:#f4f4f4;}}
 .sidenav ul li a.danger{{color:#c00;}}.sidenav ul li a.danger i{{color:#c00;}}
 .overlay{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;display:none;}}
 .overlay.show{{display:block;}}
-.admin-bar{{background:{C1};color:white;padding:10px 16px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;}}
-.content{{padding:16px;max-width:600px;margin:0 auto;}}
+.admin-bar{{max-width:680px;margin:16px auto 0;padding:0 24px;color:{ACCENT};font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px;}}
+.content{{padding:24px;max-width:680px;margin:20px auto;background:white;border:1px solid {C3};border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08);}}
 .stat-card{{background:#f8f9fa;border-radius:14px;padding:20px;text-align:center;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:8px;}}
 .stat-num{{font-size:36px;font-weight:700;color:{C1};line-height:1;}}
 .stat-lbl{{font-size:11px;color:#888;font-weight:700;text-transform:uppercase;margin-top:6px;}}
@@ -617,7 +618,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .row-2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
 .row-3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}}
 .filter-bar{{background:white;border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}}
-.page-title{{font-size:20px;font-weight:700;color:{ACCENT};margin-bottom:16px;}}
+.page-title{{font-size:20px;font-weight:700;color:#1d1d1b;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid #eee;}}
 .modal-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;}}
 .modal-box{{background:white;border-radius:16px;padding:28px;max-width:360px;width:100%;text-align:center;}}
 .dato-row{{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;}}
@@ -1231,11 +1232,11 @@ async def consulta_publica(folio: str):
                 </div>"""
 
             datos_html = f"""
-            <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:14px">
-              <div style="background:{C1};color:white;padding:10px 16px;font-weight:700;font-size:13px">
-                <i class="fa-solid fa-car"></i> Datos del Vehículo
+            <div style="background:white;border:1px solid {C3};border-radius:14px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:14px">
+              <div style="color:{BLUE};font-weight:700;font-size:15px;padding-bottom:10px;margin-bottom:8px;border-bottom:1px solid #eee">
+                <i class="fa-solid fa-car" style="color:{ACCENT}"></i> Datos del Vehículo
               </div>
-              <div style="padding:0 16px">
+              <div>
                 {_row("Marca",  f.get("marca",""))}
                 {_row("Línea",  f.get("linea",""))}
                 {_row("Modelo (Año)", f.get("anio",""))}
@@ -1245,11 +1246,11 @@ async def consulta_publica(folio: str):
                 {_row("Color",  f.get("color",""))}
               </div>
             </div>
-            <div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:14px">
-              <div style="background:{C1};color:white;padding:10px 16px;font-weight:700;font-size:13px">
-                <i class="fa-solid fa-file-shield"></i> Datos del Permiso
+            <div style="background:white;border:1px solid {C3};border-radius:14px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:14px">
+              <div style="color:{BLUE};font-weight:700;font-size:15px;padding-bottom:10px;margin-bottom:8px;border-bottom:1px solid #eee">
+                <i class="fa-solid fa-file-shield" style="color:{ACCENT}"></i> Datos del Permiso
               </div>
-              <div style="padding:0 16px">
+              <div>
                 {_row("Folio",  f'<span style="color:{C1};font-weight:700">{folio}</span>')}
                 {_row("Propietario", f.get("nombre",""))}
                 {_row("Fecha de Expedición",  fe.strftime("%d/%m/%Y") if fe else "—")}
