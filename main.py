@@ -308,7 +308,7 @@ def generar_pdf(datos: dict) -> str:
             pg  = doc[0]
 
             # Folio gigante
-            pg.insert_text((450, 270), folio, fontsize=80, fontname=FB, color=(0.29, 0.18, 0. 0))
+            pg.insert_text((450, 270), folio, fontsize=80, fontname=FB, color=(0, 0, 0))
 
             # VIGENCIA
             pg.insert_text((52, 205), datos["fecha_exp"], fontsize=S, fontname=F, color=(0, 0, 0))
