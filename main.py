@@ -40,13 +40,17 @@ _folio_counter = {"siguiente": FOLIO_INICIO}
 _folio_lock    = asyncio.Lock()
 PAGE_SIZE = 100
 
-# Paleta propia del servicio
-C1 = "#2b3f6b"
-C2 = "#1f2f52"
-C3 = "#d8c98a"
-ACCENT = "#8a1f4f"
-GREEN  = "#4c8a12"
-BLUE   = "#2856ad"
+# Paleta de colores moderna
+PRIMARY = "#1e40af"          # Azul profundo
+SECONDARY = "#0369a1"       # Azul medio
+SUCCESS = "#16a34a"         # Verde
+DANGER = "#dc2626"          # Rojo
+WARNING = "#f59e0b"         # Ámbar
+INFO = "#0284c7"            # Azul claro
+DARK = "#0f172a"            # Casi negro
+LIGHT = "#f8fafc"           # Gris muy claro
+BORDER = "#e2e8f0"          # Gris borde
+TEXT = "#1e293b"            # Gris oscuro
 
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -213,7 +217,6 @@ def subir_pdf_a_storage(ruta_local: str, folio: str) -> str:
 
 # ===================== QR (2 por permiso) =====================
 def _generar_qr_url(folio: str):
-    """QR izquierdo: apunta a nuestra página de consulta pública."""
     try:
         url = f"{BASE_URL}/consulta/{folio}"
         qr  = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=4, border=1)
@@ -224,7 +227,6 @@ def _generar_qr_url(folio: str):
         print(f"[QR] Error url: {e}"); return None
 
 def _generar_qr_datos(datos: dict):
-    """QR derecho: texto plano con los datos capturados (no es una URL)."""
     try:
         texto = (
             f"FOLIO: {datos.get('folio','')}\n"
@@ -245,7 +247,7 @@ def _generar_qr_datos(datos: dict):
     except Exception as e:
         print(f"[QR] Error datos: {e}"); return None
 
-# ===================== PDF — COORDENADAS EXACTAS (plantilla 792x612 pts) =====================
+# ===================== PDF — COORDENADAS EXACTAS =====================
 def generar_pdf(datos: dict) -> str:
     folio = datos["folio"]
     out   = os.path.join(OUTPUT_DIR, f"{folio}.pdf")
@@ -268,17 +270,10 @@ def generar_pdf(datos: dict) -> str:
             doc = fitz.open(PLANTILLA_PDF)
             pg  = doc[0]
 
-            # Folio gigante (espacio libre entre las dos franjas grises superiores)
             pg.insert_text((460, 270), folio, fontsize=35, fontname=FB, color=(0.29, 0.18, 0.51))
-
-            # VIGENCIA — valores abajo de su rubro
             pg.insert_text((52, 205), datos["fecha_exp"], fontsize=S, fontname=F, color=(0,0,0))
             pg.insert_text((52, 239), datos["fecha_ven"], fontsize=S, fontname=F, color=(0,0,0))
-
-            # PROPIETARIO — valor abajo del rubro
             pg.insert_text((52, 298), nombre, fontsize=S, fontname=F, color=(0,0,0))
-
-            # VEHICULO — todos los valores abajo de su rubro
             pg.insert_text((53, 369), serie, fontsize=8, fontname=F, color=(0,0,0))
             pg.insert_text((53, 403), serie,   fontsize=S, fontname=F, color=(0,0,0))
             pg.insert_text((137, 403), modelo, fontsize=S, fontname=F, color=(0,0,0))
@@ -288,13 +283,11 @@ def generar_pdf(datos: dict) -> str:
             pg.insert_text((138, 449), linea,  fontsize=8, fontname=F, color=(0,0,0))
             pg.insert_text((204, 437), cve,    fontsize=7, fontname=F, color=(0,0,0))
 
-            # QR izquierdo — apunta a nuestra página
             img_url = _generar_qr_url(folio)
             if img_url:
                 buf = BytesIO(); img_url.save(buf, format="PNG"); buf.seek(0)
                 pg.insert_image(fitz.Rect(76, 478, 150, 552), pixmap=fitz.Pixmap(buf.read()), overlay=True)
 
-            # QR derecho — texto plano con los datos capturados
             img_datos = _generar_qr_datos(datos)
             if img_datos:
                 buf2 = BytesIO(); img_datos.save(buf2, format="PNG"); buf2.seek(0)
@@ -550,218 +543,291 @@ async def ver_folios_activos(message: types.Message):
 async def fallback(message: types.Message):
     await message.answer("🏛️ Gobierno del Estado de Tlaxcala — SMyT.\n\n📋 Use /tlaxcala para generar un permiso.")
 
-# ===================== MARCA / IDENTIDAD PROPIA =====================
+# ===================== MARCA / IDENTIDAD =====================
 BRAND_NOMBRE   = os.getenv("BRAND_NOMBRE", "Gestoría Vehicular Digital")
 BRAND_SLOGAN   = os.getenv("BRAND_SLOGAN", "Trámites vehiculares en línea — Tlaxcala")
 LOGO_URL       = os.getenv("LOGO_URL", "/static/logo_brand.png")
 ESCUDO_URL     = os.getenv("ESCUDO_URL", "/static/logo_brand.png")
 
-# ===================== HTML CSS — SIN F-STRINGS CON LLAVES =====================
-CSS = f"""
-*{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
-body{{margin:0;background:#f4f4f4;}}
-.layout-container{{min-height:100vh;}}
-.sidebar{{display:none;}}
-@media (min-width:992px){{
-  .sidebar{{display:block;width:300px;height:100vh;position:fixed;top:0;left:0;z-index:1020;background:white;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);}}
-  .main-content-wrapper{{margin-left:300px;}}
+# ===================== CSS MODERNO =====================
+CSS_MODERNO = f"""
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:100%;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}}
+body{{background:#f1f5f9;color:{TEXT}}}
+
+/* Topbar */
+.topbar{{
+  background:linear-gradient(135deg, {PRIMARY} 0%, {SECONDARY} 100%);
+  color:white;padding:0;position:sticky;top:0;z-index:1000;
+  box-shadow:0 1px 3px 0 rgba(0,0,0,.1);
 }}
-.sidebar-header{{background:{ACCENT};padding:24px 16px;color:white;text-align:center;}}
-.sidebar-header img{{height:70px;object-fit:contain;filter:brightness(10);margin-bottom:10px;}}
-.sidebar-header p{{margin:6px 0 0;font-size:14px;opacity:.95;font-weight:600;}}
-.sidebar ul{{list-style:none;margin:0;padding:10px 0;}}
-.sidebar ul li a{{display:flex;align-items:center;gap:12px;padding:14px 20px;color:#000;text-decoration:none;font-size:14px;font-weight:600;transition:.15s;border-bottom:1px solid #f0f0f0;}}
-.sidebar ul li a:hover{{background:rgba(138,31,79,.08);}}
-.sidebar ul li a i{{color:{ACCENT};width:18px;text-align:center;}}
-.sidebar ul li a.danger{{color:#c00;}}.sidebar ul li a.danger i{{color:#c00;}}
-.topbar{{background:{C1};color:white;padding:12px 16px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15);}}
-.topbar img{{height:38px;object-fit:contain;}}
-.topbar .brand-text{{font-weight:700;font-size:15px;letter-spacing:.2px;}}
-.hamburger{{display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:4px;background:none;border:none;}}
-.hamburger span{{display:block;width:24px;height:3px;background:white;border-radius:2px;}}
-@media (min-width:992px){{ .hamburger{{display:none;}} }}
-.offcanvas-sb{{position:fixed;top:0;left:-300px;width:300px;height:100%;background:white;z-index:1030;transition:.3s;overflow-y:auto;box-shadow:4px 0 20px rgba(0,0,0,.2);}}
-.offcanvas-sb.open{{left:0;}}
-.overlay{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1025;display:none;}}
-.overlay.show{{display:block;}}
-@media (min-width:992px){{ .offcanvas-sb,.overlay{{display:none!important;}} }}
-.admin-bar{{max-width:680px;margin:16px auto 0;padding:0 24px;color:{ACCENT};font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px;}}
-.content{{padding:24px;max-width:680px;margin:20px auto;background:white;border:1px solid {C3};border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08);}}
-.stat-card{{background:#f8f9fa;border-radius:14px;padding:20px;text-align:center;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:8px;}}
-.stat-num{{font-size:36px;font-weight:700;color:{C1};line-height:1;}}
-.stat-lbl{{font-size:11px;color:#888;font-weight:700;text-transform:uppercase;margin-top:6px;}}
-.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}}
-.grid-full{{grid-column:1/-1;}}
-.menu-btn{{background:#f8f9fa;border:1px solid {C3};border-radius:14px;padding:22px 12px;text-align:center;text-decoration:none;color:#1d1d1b;display:block;transition:.2s;}}
-.menu-btn:hover{{border-color:{ACCENT};color:{ACCENT};transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.1);}}
-.menu-btn i{{font-size:28px;display:block;margin-bottom:8px;color:{ACCENT};}}
-.menu-btn span{{font-size:13px;font-weight:600;}}
-.menu-btn.danger i{{color:#dc3545;}}.menu-btn.danger:hover{{border-color:#dc3545;color:#dc3545;}}
-table{{font-size:12px;width:100%;border-collapse:collapse;}}
-thead th{{background:{C1};color:white;padding:10px 8px;text-align:left;white-space:nowrap;}}
-tbody td{{padding:9px 8px;vertical-align:middle;border-bottom:1px solid #eee;}}
-tbody tr:last-child td{{border-bottom:none;}}tbody tr:hover td{{background:#f6f3fb;}}
-.tabla-wrap{{overflow-x:auto;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
-.bp{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:white;}}
-.bp-p{{background:#dc3545;}}.bp-v{{background:#1a6e2e;}}.bp-vig{{background:#1a6e2e;}}.bp-ven{{background:{C1};}}
-.form-card{{background:#f8f9fa;border-radius:14px;padding:20px;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);}}
-.form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
-.form-control{{display:block;width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:.2s;font-family:inherit;}}
-.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(43,63,107,.1);}}
-select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}}
-.mb-3{{margin-bottom:14px;}}.mb-4{{margin-bottom:20px;}}.mt-3{{margin-top:14px;}}
-.btn{{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;text-decoration:none;transition:.2s;font-family:inherit;}}
-.btn-primary{{background:{GREEN};color:white;width:100%;}}
-.btn-primary:hover{{background:#3f7310;}}
-.btn-sm{{padding:5px 12px;font-size:11px;border-radius:6px;}}
-.btn-outline{{background:white;border:1.5px solid #ddd;color:#444;}}
-.btn-outline:hover{{border-color:{C1};color:{C1};}}
-.btn-danger{{background:#dc3545;color:white;}}.btn-success{{background:#1a6e2e;color:white;}}
-.alert{{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;}}
-.alert-ok{{background:#d4edda;color:#155724;border:1px solid #c3e6cb;}}
-.alert-err{{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}}
-.barra-c{{width:100%;height:24px;background:rgba(43,63,107,.12);border-radius:12px;overflow:hidden;margin:8px 0;}}
-.barra-p{{height:100%;background:{C1};border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700;}}
-.info-box{{background:#f8f8f8;border-radius:8px;padding:14px;font-size:13px;margin-bottom:14px;line-height:1.7;}}
-.cv{{display:inline-block;min-width:50px;max-width:180px;overflow:hidden;text-overflow:ellipsis;cursor:text;padding:2px 4px;border-radius:4px;border:1px solid transparent;color:#333;}}
-.cv:hover{{border-color:#ccc;background:#fbf8ff;}}.cv.nv{{color:#ccc;font-style:italic;}}
-.cell-input{{border:2px solid {C1};border-radius:4px;padding:3px 6px;font-size:12px;min-width:100px;max-width:220px;outline:none;background:#fbf8ff;}}
-.del-btn{{background:#fff;border:1px solid #ccc;color:#c00;border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;}}
-.del-btn:hover{{background:#c00;color:#fff;}}
-.toast-f{{position:fixed;bottom:20px;right:16px;z-index:999;padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;border:1px solid transparent;max-width:260px;}}
-.toast-f.show{{opacity:1;}}.toast-f.ok{{background:#e6ffee;border-color:#060;color:#060;}}.toast-f.err{{background:#fff0f0;border-color:#c00;color:#c00;}}
-.row-2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
-.row-3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}}
-.filter-bar{{background:white;border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}}
-.page-title{{font-size:20px;font-weight:700;color:#1d1d1b;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid #eee;}}
-.modal-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;}}
-.modal-box{{background:white;border-radius:16px;padding:28px;max-width:360px;width:100%;text-align:center;}}
-.dato-row{{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;}}
-.dato-row:last-child{{border-bottom:none;}}
-.dato-label{{color:#888;font-weight:600;}}
-.dato-valor{{font-weight:600;text-align:right;max-width:60%;}}
+.topbar-inner{{display:flex;align-items:center;gap:16px;padding:12px 24px}}
+.topbar img{{height:40px;object-fit:contain}}
+.topbar .brand-text{{font-weight:700;font-size:16px;letter-spacing:.3px}}
+.hamburger{{display:none;flex-direction:column;gap:5px;cursor:pointer;background:none;border:none;padding:4px}}
+.hamburger span{{display:block;width:22px;height:3px;background:white;border-radius:2px;transition:.3s}}
+@media(max-width:768px){{.hamburger{{display:flex}}}}
+
+/* Sidebar */
+.sidebar{{
+  position:fixed;top:0;left:0;width:280px;height:100vh;background:white;
+  border-right:1px solid {BORDER};overflow-y:auto;z-index:999;
+  box-shadow:2px 0 8px rgba(0,0,0,.08);
+}}
+.sidebar-header{{
+  background:linear-gradient(135deg, {PRIMARY} 0%, {SECONDARY} 100%);
+  color:white;padding:20px 16px;text-align:center;
+}}
+.sidebar-header img{{height:60px;object-fit:contain;filter:brightness(10);margin-bottom:8px}}
+.sidebar-header p{{font-size:13px;opacity:.9;font-weight:600}}
+.sidebar ul{{list-style:none;padding:12px 0}}
+.sidebar ul li a{{
+  display:flex;align-items:center;gap:12px;padding:12px 16px;
+  color:{TEXT};text-decoration:none;font-size:13px;font-weight:500;
+  border-left:3px solid transparent;transition:.2s;
+}}
+.sidebar ul li a:hover,.sidebar ul li a.active{{
+  background:rgba({PRIMARY:0}, {PRIMARY:1}, {PRIMARY:2}, .05);
+  border-left-color:{PRIMARY};color:{PRIMARY};
+}}
+.sidebar ul li a i{{width:18px;text-align:center;opacity:.7}}
+.sidebar ul li a.danger{{color:{DANGER}}}.sidebar ul li a.danger:hover{{background:rgba({DANGER:0},{DANGER:1},{DANGER:2},.05)}}
+
+@media(max-width:768px){{
+  .sidebar{{left:-280px;transition:.3s;box-shadow:-2px 0 8px rgba(0,0,0,.1)}}
+  .sidebar.open{{left:0}}
+  .overlay{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:998;display:none}}
+  .overlay.show{{display:block}}
+}}
+
+/* Main content */
+.main-wrapper{{margin-left:280px;min-height:100vh}}
+@media(max-width:768px){{.main-wrapper{{margin-left:0}}}}
+
+.admin-bar{{
+  background:white;padding:12px 24px;border-bottom:1px solid {BORDER};
+  color:{PRIMARY};font-weight:700;font-size:11px;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;letter-spacing:.5px;
+}}
+
+.content{{padding:24px;max-width:1280px;margin:0 auto}}
+@media(max-width:768px){{.content{{padding:16px}}}}
+
+/* Cards & Forms */
+.form-card{{
+  background:white;border-radius:12px;padding:24px;
+  border:1px solid {BORDER};box-shadow:0 1px 3px rgba(0,0,0,.05);
+}}
+.form-card .form-label{{
+  font-weight:600;font-size:13px;display:block;margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:.3px;color:#64748b;
+}}
+.form-control{{
+  display:block;width:100%;padding:11px 13px;border:1.5px solid {BORDER};
+  border-radius:8px;font-size:14px;transition:.2s;font-family:inherit;
+}}
+.form-control:focus{{border-color:{PRIMARY};outline:none;box-shadow:0 0 0 3px rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.1)}}
+select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}}
+
+.mb-3{{margin-bottom:14px}}.mb-4{{margin-bottom:20px}}.mt-3{{margin-top:14px}}
+
+/* Buttons */
+.btn{{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:11px 18px;border-radius:8px;font-weight:600;font-size:13px;
+  border:none;cursor:pointer;text-decoration:none;transition:.2s;font-family:inherit;
+  text-transform:uppercase;letter-spacing:.3px;
+}}
+.btn-primary{{background:{PRIMARY};color:white}}.btn-primary:hover{{background:{SECONDARY};transform:translateY(-1px);box-shadow:0 4px 12px rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.3)}}
+.btn-success{{background:{SUCCESS};color:white}}.btn-success:hover{{background:#15803d}}
+.btn-danger{{background:{DANGER};color:white}}.btn-danger:hover{{background:#b91c1c}}
+.btn-outline{{background:white;border:1.5px solid {BORDER};color:{PRIMARY}}}.btn-outline:hover{{border-color:{PRIMARY};background:rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.02)}}
+.btn-sm{{padding:7px 12px;font-size:12px;border-radius:6px}}
+
+/* Stat cards */
+.stat-card{{
+  background:white;border-radius:12px;padding:20px;text-align:center;
+  border:1px solid {BORDER};box-shadow:0 1px 3px rgba(0,0,0,.05);
+}}
+.stat-num{{font-size:32px;font-weight:700;color:{PRIMARY};line-height:1}}
+.stat-lbl{{font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-top:6px}}
+
+/* Grid */
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px}}
+.row-2{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+.row-3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}}
+@media(max-width:768px){{.row-2,.row-3{{grid-template-columns:1fr}}}}
+
+/* Tables */
+.tabla-wrap{{border-radius:12px;overflow:auto;box-shadow:0 1px 3px rgba(0,0,0,.05)}}
+table{{font-size:13px;width:100%;border-collapse:collapse;background:white}}
+thead th{{background:{PRIMARY};color:white;padding:12px 14px;text-align:left;font-weight:600;white-space:nowrap}}
+tbody td{{padding:12px 14px;vertical-align:middle;border-bottom:1px solid {BORDER}}}
+tbody tr:hover td{{background:rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.02)}}
+
+/* Badges & pills */
+.badge{{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}}
+.badge-success{{background:rgba({SUCCESS:0},{SUCCESS:1},{SUCCESS:2},.1);color:{SUCCESS}}}
+.badge-danger{{background:rgba({DANGER:0},{DANGER:1},{DANGER:2},.1);color:{DANGER}}}
+.badge-warning{{background:rgba({WARNING:0},{WARNING:1},{WARNING:2},.1);color:{WARNING}}}
+
+/* Alerts */
+.alert{{padding:13px 15px;border-radius:8px;margin-bottom:14px;font-size:13px;border-left:4px solid;font-weight:500}}
+.alert-success{{background:rgba({SUCCESS:0},{SUCCESS:1},{SUCCESS:2},.08);border-color:{SUCCESS};color:{SUCCESS}}}
+.alert-danger{{background:rgba({DANGER:0},{DANGER:1},{DANGER:2},.08);border-color:{DANGER};color:{DANGER}}}
+
+.page-title{{font-size:22px;font-weight:700;color:{TEXT};margin-bottom:20px;padding-bottom:14px;border-bottom:2px solid {BORDER}}}
+
+.menu-btn{{
+  background:white;border:1.5px solid {BORDER};border-radius:12px;
+  padding:20px 16px;text-align:center;text-decoration:none;
+  color:{TEXT};display:block;transition:.2s;cursor:pointer;
+}}
+.menu-btn:hover{{border-color:{PRIMARY};color:{PRIMARY};transform:translateY(-2px);box-shadow:0 8px 24px rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.1)}}
+.menu-btn i{{font-size:28px;display:block;margin-bottom:8px;color:{PRIMARY}}}
+.menu-btn span{{font-size:13px;font-weight:600}}
+
+/* Filter bar */
+.filter-bar{{background:white;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}}
+
+/* Info box */
+.info-box{{background:#f8fafc;border-radius:10px;padding:14px;font-size:13px;margin-bottom:14px;line-height:1.7;border-left:3px solid {PRIMARY}}}
+
+/* Modal */
+.modal-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}}
+.modal-box{{background:white;border-radius:14px;padding:28px;max-width:400px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}}
+
+/* Dato rows */
+.dato-row{{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid {BORDER};font-size:13px}}
+.dato-row:last-child{{border-bottom:none}}
+.dato-label{{color:#64748b;font-weight:600}}
+.dato-valor{{font-weight:600;text-align:right}}
+
+.scroll-x{{overflow-x:auto}}
 
 /* Portal público */
-.tittle-menu{{font-size:22px;font-weight:700;color:#1d1d1b;display:flex;align-items:center;gap:8px;}}
-.tittle-sub-menu{{color:{BLUE};font-weight:700;font-size:16px;margin-bottom:6px;}}
-.costo-color-text{{color:{GREEN};}}
-.card-menu-principal{{border:1px solid {C3};border-radius:14px;background:#f8f9fa;box-shadow:0 4px 16px rgba(0,0,0,.06);}}
-.card-menu-principal .card-body{{padding:20px;}}
-.text-parrafo{{color:#222;line-height:1.6;}}
-.container-fluid-portal{{max-width:1100px;margin:0 auto;padding:24px 16px;}}
-.row-portal{{display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;}}
-.col-portal-4{{flex:1 1 300px;}}
-.col-portal-8{{flex:2 1 480px;}}
-.proc-list li{{margin-bottom:10px;}}
-"""
+.portal-hero{{
+  background:linear-gradient(135deg, {PRIMARY} 0%, {SECONDARY} 100%);
+  color:white;padding:40px 24px;text-align:center;
+  margin-bottom:20px;border-radius:12px;
+}}
+.portal-hero h1{{font-size:28px;margin-bottom:8px}}
+.portal-hero p{{opacity:.9;font-size:14px}}
 
-FA    = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">'
-ROBOTO = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">'
-JS_NAV = """<script>
-function openNav(){{document.getElementById('offsb').classList.add('open');document.getElementById('overlay').classList.add('show');}}
-function closeNav(){{document.getElementById('offsb').classList.remove('open');document.getElementById('overlay').classList.remove('show');}}
-document.addEventListener('DOMContentLoaded',function(){{document.getElementById('overlay').addEventListener('click',closeNav);}});
-</script>"""
+.card-service{{
+  background:white;border-radius:12px;padding:20px;
+  border:1px solid {BORDER};transition:.2s;cursor:pointer;
+}}
+.card-service:hover{{border-color:{PRIMARY};box-shadow:0 8px 24px rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.1)}}
+.card-service-icon{{font-size:32px;margin-bottom:12px}}
+
+.status-badge{{display:inline-block;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:700}}
+.status-vigente{{background:rgba({SUCCESS:0},{SUCCESS:1},{SUCCESS:2},.1);color:{SUCCESS}}}
+.status-vencido{{background:rgba({DANGER:0},{DANGER:1},{DANGER:2},.1);color:{DANGER}}}
+.status-pendiente{{background:rgba({WARNING:0},{WARNING:1},{WARNING:2},.1);color:{WARNING}}}
+"""
 
 def head(titulo):
     return f"""<!DOCTYPE html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{titulo} — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{ROBOTO}{FA}<style>{CSS}</style></head><body style="margin:0;background:#f4f4f4">"""
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<style>{CSS_MODERNO}</style></head><body>"""
 
 def _sidebar_links():
-    return """
-    <li><a href="/panel/admin"><i class="fa-solid fa-house"></i>Inicio</a></li>
-    <li><a href="/panel/folios"><i class="fa-solid fa-list-check"></i>Ver Folios</a></li>
-    <li><a href="/panel/registro_admin"><i class="fa-solid fa-file-circle-plus"></i>Registrar Permiso</a></li>
-    <li><a href="/panel/crear_usuario"><i class="fa-solid fa-user-plus"></i>Crear Usuario</a></li>
-    <li><a href="/panel/tablas"><i class="fa-solid fa-database"></i>Tablas BD</a></li>
-    <li><a href="/consulta_folio"><i class="fa-solid fa-magnifying-glass"></i>Consultar Folio</a></li>
-    <li><a href="/panel/logout" class="danger"><i class="fa-solid fa-right-from-bracket"></i>Cerrar Sesión</a></li>"""
+    return """<li><a href="/panel/admin"><i class="fa-solid fa-gauge"></i> Inicio</a></li>
+<li><a href="/panel/folios"><i class="fa-solid fa-list"></i> Folios</a></li>
+<li><a href="/panel/registro_admin"><i class="fa-solid fa-file-circle-plus"></i> Registrar</a></li>
+<li><a href="/panel/crear_usuario"><i class="fa-solid fa-user-plus"></i> Usuario</a></li>
+<li><a href="/panel/tablas"><i class="fa-solid fa-database"></i> Tablas</a></li>
+<li><a href="/consulta_folio"><i class="fa-solid fa-magnifying-glass"></i> Consultar</a></li>
+<li><a href="/panel/logout" class="danger"><i class="fa-solid fa-right-from-bracket"></i> Salir</a></li>"""
 
 def navbar():
     links = _sidebar_links()
-    return f"""<nav class="sidebar">
+    return f"""<div class="overlay" id="overlay"></div>
+<aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
     <p>{BRAND_NOMBRE}</p>
   </div>
   <ul>{links}</ul>
-</nav>
-<div class="overlay" id="overlay"></div>
-<nav class="offcanvas-sb" id="offsb">
-  <div class="sidebar-header">
-    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
-    <p>{BRAND_NOMBRE}</p>
-  </div>
-  <ul>{links}</ul>
-</nav>
+</aside>
 <div class="topbar">
-  <button class="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
-  <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
-  <span class="brand-text">{BRAND_NOMBRE}</span>
+  <div class="topbar-inner">
+    <button class="hamburger" id="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <span class="brand-text">{BRAND_NOMBRE}</span>
+  </div>
 </div>"""
 
 def admin_bar(seccion):
     return f'<div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> {seccion}</div>'
 
 def footer(scripts=""):
-    return f"""{scripts}{JS_NAV}</div></body></html>"""
+    return f"""{scripts}<script>
+function openNav(){{document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('show')}}
+document.getElementById('overlay')&&document.getElementById('overlay').addEventListener('click',()=>{{document.getElementById('sidebar').classList.remove('open');document.getElementById('overlay').classList.remove('show')}})
+</script></body></html>"""
 
 def page(titulo, seccion, contenido, scripts=""):
-    return (head(titulo) + '<div class="layout-container">' + navbar()
-            + '<div class="main-content-wrapper">' + admin_bar(seccion)
-            + f'<div class="content">{contenido}</div>' + footer(scripts))
+    return (head(titulo) + navbar() + 
+            '<div class="main-wrapper">' + admin_bar(seccion) +
+            f'<div class="content">{contenido}</div>' + footer(scripts))
 
 def login_html(error=False):
-    err = '<div class="alert alert-err"><i class="fa-solid fa-triangle-exclamation"></i> Usuario o contraseña incorrectos</div>' if error else ""
+    err = f'<div class="alert alert-danger"><i class="fa-solid fa-triangle-exclamation"></i> Usuario o contraseña incorrectos</div>' if error else ""
     return f"""<!DOCTYPE html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Acceso — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{ROBOTO}{FA}
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 <style>
-*{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
-body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:column;}}
-.lh{{background:white;padding:12px 20px;text-align:center;border-bottom:4px solid {C3};}}
-.lh img{{height:60px;object-fit:contain;}}
-.lw{{flex:1;display:flex;align-items:center;justify-content:center;padding:30px 15px;}}
-.lc{{background:white;border-radius:16px;padding:32px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);}}
-.le{{text-align:center;margin-bottom:16px;}}.le img{{height:65px;}}
-.lt{{text-align:center;font-size:20px;font-weight:700;color:{C1};margin-bottom:4px;}}
-.ls{{text-align:center;font-size:12px;color:#777;margin-bottom:22px;}}
-.form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
-.form-control{{display:block;width:100%;padding:11px 13px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;}}
-.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(43,63,107,.1);}}
-.mb-3{{margin-bottom:14px;}}.mb-4{{margin-bottom:20px;}}
-.alert{{padding:11px 13px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:14px;}}
-.alert-err{{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}}
-.btn-in{{background:{C1};border:none;color:white;width:100%;padding:13px;font-weight:700;font-size:15px;border-radius:8px;cursor:pointer;font-family:inherit;}}
-.btn-in:hover{{background:{C2};}}
-.lf{{background:rgba(0,0,0,.2);color:rgba(255,255,255,.7);text-align:center;padding:14px;font-size:12px;}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{
+  background:linear-gradient(135deg, {PRIMARY} 0%, {SECONDARY} 100%);
+  min-height:100vh;margin:0;display:flex;align-items:center;justify-content:center;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}}
+.login-container{{background:white;border-radius:16px;padding:40px;max-width:380px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}}
+.login-header{{text-align:center;margin-bottom:28px}}
+.login-header img{{height:70px;object-fit:contain;margin-bottom:12px}}
+.login-title{{font-size:22px;font-weight:700;color:{TEXT};margin-bottom:4px}}
+.login-subtitle{{font-size:13px;color:#64748b;line-height:1.5}}
+.form-label{{font-weight:600;font-size:13px;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;color:#64748b}}
+.form-control{{display:block;width:100%;padding:11px 13px;border:1.5px solid {BORDER};border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:14px}}
+.form-control:focus{{border-color:{PRIMARY};outline:none;box-shadow:0 0 0 3px rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.1)}}
+.btn-login{{background:{PRIMARY};border:none;color:white;width:100%;padding:12px;font-weight:700;font-size:14px;border-radius:8px;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px;transition:.2s;margin-top:8px}}
+.btn-login:hover{{background:{SECONDARY};}}
+.alert{{padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:14px;border-left:4px solid}}
+.alert-danger{{background:rgba({DANGER:0},{DANGER:1},{DANGER:2},.08);border-color:{DANGER};color:{DANGER}}}
 </style></head><body>
-<div class="lh"><img src="{LOGO_URL}" alt="{BRAND_NOMBRE}"></div>
-<div class="lw"><div class="lc">
-  <div class="le"><img src="{ESCUDO_URL}" alt="{BRAND_NOMBRE}"></div>
-  <div class="lt">{BRAND_NOMBRE}</div>
-  <div class="ls">{BRAND_SLOGAN}<br>Sistema Administrativo</div>
+<div class="login-container">
+  <div class="login-header">
+    <img src="{ESCUDO_URL}" alt="{BRAND_NOMBRE}">
+    <div class="login-title">{BRAND_NOMBRE}</div>
+    <div class="login-subtitle">{BRAND_SLOGAN}<br>Acceso al Sistema Administrativo</div>
+  </div>
   {err}
   <form method="POST" action="/panel/login">
-    <div class="mb-3"><label class="form-label">Usuario</label><input type="text" name="username" class="form-control" required autofocus autocomplete="off"></div>
-    <div class="mb-4"><label class="form-label">Contraseña</label><input type="password" name="password" class="form-control" required></div>
-    <button type="submit" class="btn-in"><i class="fa-solid fa-right-to-bracket"></i> &nbsp;Ingresar al Sistema</button>
+    <label class="form-label">Usuario</label>
+    <input type="text" name="username" class="form-control" required autofocus autocomplete="off">
+    <label class="form-label">Contraseña</label>
+    <input type="password" name="password" class="form-control" required>
+    <button type="submit" class="btn-login"><i class="fa-solid fa-right-to-bracket"></i> Ingresar</button>
   </form>
-</div></div>
-<div class="lf">{BRAND_NOMBRE} © 2026</div>
+</div>
 </body></html>"""
 
 # ===================== PORTAL PÚBLICO =====================
 PORTAL_ITEMS = [
-    {"icono": "fa-car-front", "titulo": "Permiso Provisional de Circulación", "ruta": "/portal/permiso-provisional-de-circulacion", "activo": True},
-    {"icono": "fa-file-circle-check", "titulo": "Refrendo y/o Tenencia", "ruta": "#", "activo": False},
+    {"icono": "fa-car-front", "titulo": "Permiso Provisional", "ruta": "/portal/permiso-provisional-de-circulacion", "activo": True},
+    {"icono": "fa-file-circle-check", "titulo": "Refrendo y Tenencia", "ruta": "#", "activo": False},
     {"icono": "fa-file-circle-minus", "titulo": "Baja de Vehículos", "ruta": "#", "activo": False},
-    {"icono": "fa-magnifying-glass", "titulo": "Consultar / Validar Folio", "ruta": "/consulta_folio", "activo": True},
+    {"icono": "fa-magnifying-glass", "titulo": "Consultar Folio", "ruta": "/consulta_folio", "activo": True},
 ]
 
 def portal_navbar():
@@ -769,39 +835,30 @@ def portal_navbar():
         f'<li><a href="{it["ruta"]}"><i class="fa-solid {it["icono"]}"></i>{it["titulo"]}</a></li>'
         for it in PORTAL_ITEMS
     )
-    return f"""<nav class="sidebar">
+    return f"""<div class="overlay" id="overlay"></div>
+<aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
     <p>{BRAND_NOMBRE}</p>
   </div>
   <ul>
-    <li><a href="/portal"><i class="fa-solid fa-house"></i>Inicio</a></li>
+    <li><a href="/portal"><i class="fa-solid fa-house"></i> Inicio</a></li>
     {items_html}
-    <li><a href="/panel/login"><i class="fa-solid fa-right-to-bracket"></i>Acceso al Sistema</a></li>
+    <li><a href="/panel/login"><i class="fa-solid fa-right-to-bracket"></i> Acceso</a></li>
   </ul>
-</nav>
-<div class="overlay" id="overlay"></div>
-<nav class="offcanvas-sb" id="offsb">
-  <div class="sidebar-header">
-    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
-    <p>{BRAND_NOMBRE}</p>
-  </div>
-  <ul>
-    <li><a href="/portal"><i class="fa-solid fa-house"></i>Inicio</a></li>
-    {items_html}
-    <li><a href="/panel/login"><i class="fa-solid fa-right-to-bracket"></i>Acceso al Sistema</a></li>
-  </ul>
-</nav>
+</aside>
 <div class="topbar">
-  <button class="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
-  <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
-  <span class="brand-text">{BRAND_NOMBRE}</span>
+  <div class="topbar-inner">
+    <button class="hamburger" id="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <span class="brand-text">{BRAND_NOMBRE}</span>
+  </div>
 </div>"""
 
 def portal_page(titulo, contenido):
-    return (head(titulo) + '<div class="layout-container">' + portal_navbar()
-            + '<div class="main-content-wrapper">'
-            + f'<div class="container-fluid-portal">{contenido}</div>' + footer())
+    return (head(titulo) + portal_navbar() +
+            '<div class="main-wrapper">' +
+            f'<div class="content">{contenido}</div>' + footer())
 
 # ===================== LIFESPAN =====================
 _keep_task = None
@@ -818,14 +875,14 @@ async def lifespan(app: FastAPI):
     webhook_url = f"{BASE_URL}/webhook"
     await bot.set_webhook(webhook_url, allowed_updates=["message", "callback_query"])
     _keep_task = asyncio.create_task(keep_alive())
-    print(f"[SISTEMA] Tlaxcala v1.0 listo — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
+    print(f"[SISTEMA] Tlaxcala v2.0 — Diseño moderno activado — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
     yield
     if _keep_task:
         _keep_task.cancel()
         with suppress(asyncio.CancelledError): await _keep_task
     await bot.session.close()
 
-app = FastAPI(lifespan=lifespan, title="Trámites Vehiculares", version="1.0")
+app = FastAPI(lifespan=lifespan, title="Trámites Vehiculares", version="2.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "tlaxcala_clave_super_segura_cambiar"))
 try: app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 except Exception: pass
@@ -833,62 +890,46 @@ except Exception: pass
 # ===================== PORTAL PÚBLICO — RUTAS =====================
 @app.get("/portal", response_class=HTMLResponse)
 async def portal_home():
-    cards = "".join(f"""<a href="{it['ruta']}" class="menu-btn" style="text-align:left;display:flex;align-items:center;gap:14px;padding:18px">
-        <i class="fa-solid {it['icono']}" style="font-size:26px"></i>
-        <span style="font-size:14px">{it['titulo']}</span>
+    cards = "".join(f"""<a href="{it['ruta']}" class="menu-btn">
+        <i class="fa-solid {it['icono']}"></i>
+        <span>{it['titulo']}</span>
       </a>""" for it in PORTAL_ITEMS)
     contenido = f"""
-    <h4 class="tittle-menu"><i class="fa-solid fa-clipboard-list"></i> Trámites y Servicios</h4>
-    <p class="text-parrafo" style="color:#666">{BRAND_SLOGAN}</p>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">{cards}</div>
+    <div class="portal-hero">
+      <h1><i class="fa-solid fa-car"></i> Trámites Vehiculares</h1>
+      <p>{BRAND_SLOGAN}</p>
+    </div>
+    <div class="grid">{cards}</div>
     """
-    return HTMLResponse(portal_page("Trámites y Servicios", contenido))
+    return HTMLResponse(portal_page("Inicio", contenido))
 
 @app.get("/portal/permiso-provisional-de-circulacion", response_class=HTMLResponse)
 async def portal_permiso_provisional():
     contenido = f"""
-    <div class="row-portal">
-      <div class="col-portal-4">
-        <div class="card-menu-principal">
-          <div class="card-body">
-            <h4 class="tittle-menu" style="font-size:18px"><i class="fa-solid fa-car-front"></i> Permiso Provisional de Circulación</h4>
-            <hr>
-            <h4 class="tittle-sub-menu">Descripción</h4>
-            <p class="text-parrafo">Permiso provisional de circulación para vehículos nuevos y usados, mientras se realiza el trámite de placas definitivas.</p>
-            <h4 class="tittle-sub-menu">Costo</h4>
-            <p class="costo-color-text"><b>$352.00 MXN</b></p>
-            <h4 class="tittle-sub-menu">Documento a recibir</h4>
-            <p class="text-parrafo">Permiso provisional de circulación en PDF, con folio y código QR de verificación.</p>
-            <h4 class="tittle-sub-menu">Vigencia</h4>
-            <p class="text-parrafo">30 días naturales a partir de la fecha de expedición.</p>
-          </div>
-        </div>
+    <div class="page-title"><i class="fa-solid fa-car-front"></i> Permiso Provisional de Circulación</div>
+    <div class="grid" style="grid-template-columns:1fr 2fr;gap:20px;align-items:start">
+      <div class="form-card">
+        <h3 style="font-size:16px;margin-bottom:14px;color:{PRIMARY}">Información del Trámite</h3>
+        <p style="font-size:13px;line-height:1.6;margin-bottom:12px"><strong>Descripción:</strong> Permiso provisional para circulación de vehículos nuevos y usados.</p>
+        <p style="font-size:13px;line-height:1.6;margin-bottom:12px"><strong>Costo:</strong> <span style="color:{SUCCESS};font-weight:700">$352.00 MXN</span></p>
+        <p style="font-size:13px;line-height:1.6;margin-bottom:12px"><strong>Vigencia:</strong> 30 días naturales</p>
+        <a href="/panel/login" class="btn btn-primary" style="width:100%;margin-top:14px">Iniciar Trámite</a>
       </div>
-      <div class="col-portal-8">
-        <div class="card-menu-principal mb-3">
-          <div class="card-body" style="text-align:center">
-            <p class="text-parrafo mb-2">Si deseas iniciar tu trámite, ingresa al sistema y captura los datos de tu vehículo.</p>
-            <a href="/panel/login" class="btn btn-primary" style="width:auto;display:inline-flex"><i class="fa-solid fa-right-to-bracket"></i> Iniciar Trámite</a>
-          </div>
-        </div>
-        <div class="card-menu-principal">
-          <div class="card-body">
-            <h4 class="tittle-sub-menu">Procedimiento</h4>
-            <ol class="text-parrafo proc-list">
-              <li>Ingresa al sistema con tu usuario y contraseña.</li>
-              <li>Captura los datos del vehículo: marca, línea, año, número de serie, número de motor, color y clave vehicular.</li>
-              <li>Captura el nombre completo del propietario.</li>
-              <li>El sistema genera tu folio y tu permiso en PDF de manera automática.</li>
-              <li>Realiza el pago correspondiente y envía tu comprobante dentro de las 36 horas siguientes.</li>
-              <li>Una vez validado el pago, tu permiso queda activo y puedes descargarlo o consultarlo con tu folio.</li>
-            </ol>
-          </div>
-        </div>
+      <div class="form-card">
+        <h3 style="font-size:16px;margin-bottom:14px;color:{PRIMARY}">Procedimiento</h3>
+        <ol style="font-size:13px;line-height:1.8;padding-left:20px">
+          <li>Ingresa al sistema con tu usuario</li>
+          <li>Captura datos del vehículo (marca, línea, año, etc.)</li>
+          <li>El sistema genera automáticamente tu folio y PDF</li>
+          <li>Realiza el pago en 36 horas</li>
+          <li>Envía tu comprobante para validación</li>
+          <li>Tu permiso queda activo</li>
+        </ol>
       </div>
     </div>
-    <div class="mt-3"><a href="/portal" class="btn btn-outline btn-sm">← Volver a Trámites y Servicios</a></div>
+    <div style="margin-top:20px"><a href="/portal" class="btn btn-outline">← Volver</a></div>
     """
-    return HTMLResponse(portal_page("Permiso Provisional de Circulación", contenido))
+    return HTMLResponse(portal_page("Permiso Provisional", contenido))
 
 # ===================== WEBHOOK =====================
 @app.post("/webhook")
@@ -939,22 +980,32 @@ async def panel_admin(request: Request):
         r = supabase.table("folios_registrados").select("folio").eq("estado_pago","PENDIENTE_PAGO").eq("entidad",ENTIDAD).execute()
         pendientes = len(r.data or [])
     except Exception: pass
-    color_pend = "#dc3545" if pendientes else "#1a6e2e"
+    color_pend = DANGER if pendientes else SUCCESS
     contenido = f"""
-    <div class="row-2 mb-3">
-      <div class="stat-card"><div class="stat-num">{len(timers_activos)}</div><div class="stat-lbl">Timers Activos</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:{color_pend}">{pendientes}</div><div class="stat-lbl">Pendientes Pago</div></div>
-    </div>
-    <div class="stat-card mb-3"><div class="stat-num">{FOLIO_PREFIJO}{_folio_counter['siguiente']}</div><div class="stat-lbl">Siguiente Folio</div></div>
+    <div class="page-title"><i class="fa-solid fa-gauge"></i> Panel de Administración</div>
     <div class="grid">
-      <a href="/panel/folios" class="menu-btn"><i class="fa-solid fa-list-check"></i><span>Ver Folios</span></a>
+      <div class="stat-card">
+        <div class="stat-num" style="color:{INFO}">{len(timers_activos)}</div>
+        <div class="stat-lbl">Timers Activos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" style="color:{color_pend}">{pendientes}</div>
+        <div class="stat-lbl">Pendientes de Pago</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" style="color:{SUCCESS}">{FOLIO_PREFIJO}{_folio_counter['siguiente']}</div>
+        <div class="stat-lbl">Siguiente Folio</div>
+      </div>
+    </div>
+    <div class="grid">
+      <a href="/panel/folios" class="menu-btn"><i class="fa-solid fa-list"></i><span>Ver Folios</span></a>
       <a href="/panel/registro_admin" class="menu-btn"><i class="fa-solid fa-file-circle-plus"></i><span>Registrar Permiso</span></a>
       <a href="/panel/crear_usuario" class="menu-btn"><i class="fa-solid fa-user-plus"></i><span>Crear Usuario</span></a>
       <a href="/panel/tablas" class="menu-btn"><i class="fa-solid fa-database"></i><span>Tablas BD</span></a>
       <a href="/consulta_folio" class="menu-btn"><i class="fa-solid fa-magnifying-glass"></i><span>Consultar Folio</span></a>
-      <a href="/portal" class="menu-btn"><i class="fa-solid fa-globe"></i><span>Ver Portal Público</span></a>
-      <a href="/panel/logout" class="menu-btn danger grid-full"><i class="fa-solid fa-right-from-bracket"></i><span>Cerrar Sesión</span></a>
-    </div>"""
+      <a href="/portal" class="menu-btn"><i class="fa-solid fa-globe"></i><span>Portal Público</span></a>
+    </div>
+    """
     return HTMLResponse(page("Panel Admin","Panel de Administración", contenido))
 
 # ===================== FOLIOS =====================
@@ -972,10 +1023,10 @@ async def admin_folios(request: Request):
         modal_html = f"""<div class="modal-overlay" id="mD">
   <div class="modal-box">
     <div style="font-size:48px;margin-bottom:12px">📄</div>
-    <h2 style="color:{C1};font-size:18px;font-weight:700;margin-bottom:8px">Permiso Generado</h2>
-    <p style="color:#666;font-size:13px;margin-bottom:20px">¿Deseas descargar el PDF?</p>
+    <h2 style="color:{PRIMARY};font-size:18px;font-weight:700;margin-bottom:8px">Permiso Generado</h2>
+    <p style="color:#64748b;font-size:13px;margin-bottom:20px">¿Descargar el PDF?</p>
     <div style="display:flex;gap:8px;justify-content:center">
-      <a href="{pdf_url}" target="_blank" class="btn btn-primary btn-sm" onclick="document.getElementById('mD').remove()" style="width:auto"><i class="fa-solid fa-download"></i> Descargar</a>
+      <a href="{pdf_url}" target="_blank" class="btn btn-primary btn-sm" style="width:auto" onclick="document.getElementById('mD').remove()"><i class="fa-solid fa-download"></i> Descargar</a>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('mD').remove()">Cerrar</button>
     </div>
   </div>
@@ -993,53 +1044,48 @@ async def admin_folios(request: Request):
             except: f["estado_calc"] = "ERROR"
         if ev_fil != "todos": folios = [f for f in folios if f.get("estado_calc","") == ev_fil]
     except Exception as e: folios = []; print(f"[FOLIOS] Error: {e}")
-    msg_html = f'<div class="alert alert-ok">{msg}</div>' if msg else ""
+    msg_html = f'<div class="alert alert-success">{msg}</div>' if msg else ""
     filas = ""
     for f in folios:
         pago = f.get("estado_pago","VALIDADO") or "VALIDADO"
         ec   = f.get("estado_calc","")
-        bp   = f'<span class="bp bp-p">PEND</span>' if pago=="PENDIENTE_PAGO" else f'<span class="bp bp-v">OK</span>'
-        be   = f'<span class="bp bp-vig">VIG</span>' if ec=="VIGENTE" else f'<span class="bp bp-ven">VEN</span>'
+        bp   = f'<span class="badge badge-warning">PEND</span>' if pago=="PENDIENTE_PAGO" else f'<span class="badge badge-success">OK</span>'
+        be   = f'<span class="badge badge-success">VIG</span>' if ec=="VIGENTE" else f'<span class="badge badge-danger">VEN</span>'
         bval = f'<form method="POST" action="/panel/validar/{f["folio"]}" style="display:inline"><button class="btn btn-success btn-sm" onclick="return confirm(\'¿Validar?\')">✅</button></form> ' if pago=="PENDIENTE_PAGO" else ""
         pdf  = f.get("pdf_url","")
-        bpdf = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📄</a> ' if pdf else ""
+        bpdf = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{PRIMARY};color:white;display:inline-flex">📄</a> ' if pdf else ""
         filas += f"""<tr>
-          <td><strong style="color:{C1}">{f.get("folio","")}</strong><br><small style="color:#999">{f.get("creado_por","")}</small></td>
-          <td>{f.get("nombre","")[:18]}</td>
-          <td>{f.get("marca","")} {f.get("linea","")}<br><small>{f.get("anio","")}</small></td>
-          <td>{str(f.get("fecha_expedicion",""))[:10]}<br>{str(f.get("fecha_vencimiento",""))[:10]}</td>
+          <td><strong style="color:{PRIMARY}">{f.get("folio","")}</strong><br><small style="color:#94a3b8">{f.get("creado_por","")[:20]}</small></td>
+          <td>{f.get("nombre","")[:20]}</td>
+          <td>{f.get("marca","")} {f.get("linea","")}</td>
+          <td>{str(f.get("fecha_expedicion",""))[:10]}</td>
           <td>{be} {bp}</td>
-          <td>{bval}{bpdf}<a href="/consulta/{f.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
+          <td style="white-space:nowrap">{bval}{bpdf}<a href="/consulta/{f.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
         </tr>"""
     filtros = f"""<div class="filter-bar">
       <form method="GET" style="display:contents">
-        <input type="text" name="filtro" class="form-control" value="{filtro}" placeholder="Buscar...">
+        <input type="text" name="filtro" class="form-control" value="{filtro}" placeholder="Buscar..." style="max-width:200px">
         <select name="criterio" class="form-control" style="max-width:100px">
           <option value="folio" {"selected" if crit=="folio" else ""}>Folio</option>
           <option value="nombre" {"selected" if crit=="nombre" else ""}>Nombre</option>
           <option value="numero_serie" {"selected" if crit=="numero_serie" else ""}>Serie</option>
         </select>
-        <select name="estado_pago" class="form-control" style="max-width:100px">
+        <select name="estado_pago" class="form-control" style="max-width:110px">
           <option value="todos" {"selected" if ep_fil=="todos" else ""}>Todos</option>
           <option value="PENDIENTE_PAGO" {"selected" if ep_fil=="PENDIENTE_PAGO" else ""}>Pendiente</option>
           <option value="VALIDADO" {"selected" if ep_fil=="VALIDADO" else ""}>Validado</option>
         </select>
-        <select name="estado_vigencia" class="form-control" style="max-width:100px">
-          <option value="todos" {"selected" if ev_fil=="todos" else ""}>Todos</option>
-          <option value="VIGENTE" {"selected" if ev_fil=="VIGENTE" else ""}>Vigente</option>
-          <option value="VENCIDO" {"selected" if ev_fil=="VENCIDO" else ""}>Vencido</option>
-        </select>
         <button type="submit" class="btn btn-primary btn-sm" style="width:auto">Filtrar</button>
         <a href="/panel/folios" class="btn btn-outline btn-sm">✕</a>
       </form>
-      <span style="font-size:12px;color:#888">{len(folios)} resultados</span>
+      <span style="font-size:12px;color:#94a3b8;margin-left:auto">{len(folios)} resultados</span>
     </div>"""
     contenido = f"""{modal_html}
-    <p class="page-title">Folios Registrados</p>
+    <div class="page-title"><i class="fa-solid fa-list"></i> Folios Registrados</div>
     {msg_html}{filtros}
-    <div class="tabla-wrap"><table>
-      <thead><tr><th>Folio</th><th>Titular</th><th>Vehículo</th><th>Fechas</th><th>Estado</th><th>Acc.</th></tr></thead>
-      <tbody>{filas or '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">Sin folios</td></tr>'}</tbody>
+    <div class="tabla-wrap scroll-x"><table>
+      <thead><tr><th>Folio</th><th>Titular</th><th>Vehículo</th><th>Fecha</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody>{filas or '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">Sin folios</td></tr>'}</tbody>
     </table></div>"""
     return HTMLResponse(page("Folios","Folios Registrados", contenido))
 
@@ -1052,7 +1098,7 @@ async def validar_pago(request: Request, folio: str):
         if folio in timers_activos:
             uid = timers_activos[folio]["user_id"]; nombre = timers_activos[folio].get("nombre","")
             cancelar_timer_folio(folio)
-            try: await bot.send_message(uid, f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {folio}\nTitular: {nombre}\nTu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
+            try: await bot.send_message(uid, f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {folio}\nTitular: {nombre}\nTu permiso está activo.")
             except Exception: pass
     except Exception as e: print(f"[VALIDAR] Error: {e}")
     from urllib.parse import quote
@@ -1078,13 +1124,15 @@ async def registro_admin_get(request: Request):
     if not request.session.get("admin"): return RedirectResponse(url="/panel/login", status_code=303)
     tz = ZoneInfo(TZ); hoy = datetime.now(tz).strftime("%Y-%m-%d")
     err = request.query_params.get("error","")
-    err_html = f'<div class="alert alert-err">{err}</div>' if err else ""
+    err_html = f'<div class="alert alert-danger">{err}</div>' if err else ""
     contenido = f"""
-    <p class="page-title">Registrar Permiso</p>{err_html}
-    <div class="form-card">
+    <div class="page-title"><i class="fa-solid fa-file-circle-plus"></i> Registrar Permiso</div>{err_html}
+    <div class="form-card" style="max-width:600px">
       <form method="POST" action="/panel/registro_admin">
-        <div class="mb-3"><label class="form-label">Folio manual <small style="color:#999;font-weight:400">(vacío = auto)</small></label>
-          <input type="text" name="folio" class="form-control" placeholder="{FOLIO_PREFIJO}53314" style="text-transform:uppercase"></div>
+        <div class="mb-3">
+          <label class="form-label">Folio manual <small style="color:#94a3b8;font-weight:400">(vacío = auto)</small></label>
+          <input type="text" name="folio" class="form-control" placeholder="{FOLIO_PREFIJO}53314" style="text-transform:uppercase">
+        </div>
         <div class="row-2">
           <div class="mb-3"><label class="form-label">Marca *</label><input type="text" name="marca" class="form-control" required style="text-transform:uppercase"></div>
           <div class="mb-3"><label class="form-label">Línea *</label><input type="text" name="linea" class="form-control" required style="text-transform:uppercase"></div>
@@ -1093,15 +1141,15 @@ async def registro_admin_get(request: Request):
           <div class="mb-3"><label class="form-label">Año *</label><input type="text" name="anio" class="form-control" maxlength="4" required></div>
           <div class="mb-3"><label class="form-label">Color *</label><input type="text" name="color" class="form-control" required style="text-transform:uppercase"></div>
         </div>
-        <div class="mb-3"><label class="form-label">Núm. Serie / NIV * <small style="color:#999;font-weight:400">(se usa para ambos campos)</small></label><input type="text" name="numero_serie" class="form-control" required style="text-transform:uppercase"></div>
+        <div class="mb-3"><label class="form-label">Núm. Serie / NIV *</label><input type="text" name="numero_serie" class="form-control" required style="text-transform:uppercase"></div>
         <div class="mb-3"><label class="form-label">Núm. Motor *</label><input type="text" name="numero_motor" class="form-control" required style="text-transform:uppercase"></div>
         <div class="mb-3"><label class="form-label">Clave Vehicular *</label><input type="text" name="cve_vehicular" class="form-control" required style="text-transform:uppercase"></div>
-        <div class="mb-3"><label class="form-label">Nombre del propietario *</label><input type="text" name="nombre" class="form-control" required style="text-transform:uppercase"></div>
+        <div class="mb-3"><label class="form-label">Nombre del Propietario *</label><input type="text" name="nombre" class="form-control" required style="text-transform:uppercase"></div>
         <div class="row-2">
-          <div class="mb-3"><label class="form-label">Fecha expedición</label><input type="date" name="fecha_expedicion" class="form-control" value="{hoy}"></div>
-          <div class="mb-3"><label class="form-label">Vencimiento <small style="color:#999">(vacío=+30d)</small></label><input type="date" name="fecha_vencimiento" class="form-control"></div>
+          <div class="mb-3"><label class="form-label">Fecha de Expedición</label><input type="date" name="fecha_expedicion" class="form-control" value="{hoy}"></div>
+          <div class="mb-3"><label class="form-label">Vencimiento <small style="color:#94a3b8">(vacío=+30d)</small></label><input type="date" name="fecha_vencimiento" class="form-control"></div>
         </div>
-        <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-file-circle-plus"></i> Generar Permiso</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-file-circle-plus"></i> Generar Permiso</button>
       </form>
     </div>"""
     return HTMLResponse(page("Registrar Permiso","Registrar Permiso", contenido))
@@ -1141,14 +1189,14 @@ async def crear_usuario_get(request: Request):
     if not request.session.get("admin"): return RedirectResponse(url="/panel/login", status_code=303)
     msg = request.query_params.get("msg",""); err = request.query_params.get("error","")
     contenido = f"""
-    <p class="page-title">Crear Usuario</p>
-    {"<div class='alert alert-ok'>"+msg+"</div>" if msg else ""}
-    {"<div class='alert alert-err'>"+err+"</div>" if err else ""}
-    <div class="form-card">
+    <div class="page-title"><i class="fa-solid fa-user-plus"></i> Crear Usuario</div>
+    {"<div class='alert alert-success'>"+msg+"</div>" if msg else ""}
+    {"<div class='alert alert-danger'>"+err+"</div>" if err else ""}
+    <div class="form-card" style="max-width:400px">
       <form method="POST" action="/panel/crear_usuario">
         <div class="mb-3"><label class="form-label">Usuario *</label><input type="text" name="username" class="form-control" required autocomplete="off"></div>
         <div class="mb-3"><label class="form-label">Contraseña *</label><input type="password" name="password" class="form-control" required></div>
-        <div class="mb-4"><label class="form-label">Folios asignados *</label><input type="number" name="folios" class="form-control" min="1" required></div>
+        <div class="mb-4"><label class="form-label">Folios Asignados *</label><input type="number" name="folios" class="form-control" min="1" required></div>
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Crear Usuario</button>
       </form>
     </div>"""
@@ -1177,7 +1225,7 @@ async def registro_usuario_get(request: Request):
     disp = asig - usad; porc = round((usad/asig*100) if asig else 0, 1)
     tz = ZoneInfo(TZ); hoy = datetime.now(tz).strftime("%Y-%m-%d")
     msg = request.query_params.get("msg",""); err = request.query_params.get("error","")
-    form_html = f"""<div class="form-card">
+    form_html = f"""<div class="form-card" style="max-width:600px">
       <form method="POST" action="/registro_usuario">
         <div class="row-2">
           <div class="mb-3"><label class="form-label">Marca *</label><input type="text" name="marca" class="form-control" required style="text-transform:uppercase"></div>
@@ -1187,37 +1235,39 @@ async def registro_usuario_get(request: Request):
           <div class="mb-3"><label class="form-label">Año *</label><input type="number" name="anio" class="form-control" required></div>
           <div class="mb-3" style="grid-column:span 2"><label class="form-label">Color *</label><input type="text" name="color" class="form-control" required style="text-transform:uppercase"></div>
         </div>
-        <div class="mb-3"><label class="form-label">Núm. Serie / NIV * <small style="color:#999;font-weight:400">(se usa para ambos campos)</small></label><input type="text" name="serie" class="form-control" required style="text-transform:uppercase"></div>
+        <div class="mb-3"><label class="form-label">Núm. Serie / NIV *</label><input type="text" name="serie" class="form-control" required style="text-transform:uppercase"></div>
         <div class="mb-3"><label class="form-label">Núm. Motor *</label><input type="text" name="motor" class="form-control" required style="text-transform:uppercase"></div>
         <div class="mb-3"><label class="form-label">Clave Vehicular *</label><input type="text" name="cve_vehicular" class="form-control" required style="text-transform:uppercase"></div>
-        <div class="mb-3"><label class="form-label">Nombre del propietario *</label><input type="text" name="nombre" class="form-control" required style="text-transform:uppercase"></div>
-        <div class="mb-4"><label class="form-label">Fecha inicio vigencia</label><input type="date" name="fecha_inicio" class="form-control" value="{hoy}" min="{hoy}"></div>
-        <button type="submit" id="btnReg" class="btn btn-primary">Registrar Folio</button>
+        <div class="mb-3"><label class="form-label">Nombre del Propietario *</label><input type="text" name="nombre" class="form-control" required style="text-transform:uppercase"></div>
+        <div class="mb-4"><label class="form-label">Fecha Inicio de Vigencia</label><input type="date" name="fecha_inicio" class="form-control" value="{hoy}" min="{hoy}"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%">Registrar Folio</button>
       </form>
-    </div>""" if disp > 0 else '<div class="alert alert-err">Sin folios disponibles. Contacta al administrador.</div>'
+    </div>""" if disp > 0 else '<div class="alert alert-danger">Sin folios disponibles. Contacta al administrador.</div>'
     contenido = f"""
-    <p class="page-title">Registrar Permiso</p>
-    <div class="form-card mb-3">
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+    <div class="page-title"><i class="fa-solid fa-file-circle-plus"></i> Registrar Permiso</div>
+    <div class="form-card mb-3" style="max-width:600px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px">
         <span style="font-weight:700;font-size:14px">Mis Folios</span>
-        <span style="font-size:12px;color:#888">{usad} / {asig}</span>
+        <span style="font-size:12px;color:#94a3b8">{usad} / {asig}</span>
       </div>
-      <div class="barra-c"><div class="barra-p" style="width:{porc}%">{porc}%</div></div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:4px">
-        <span>Usados: <strong>{usad}</strong></span><span>Total: <strong>{asig}</strong></span><span>Disponibles: <strong style="color:{C1}">{disp}</strong></span>
+      <div style="width:100%;height:8px;background:rgba({PRIMARY:0},{PRIMARY:1},{PRIMARY:2},.1);border-radius:4px;overflow:hidden">
+        <div style="height:100%;background:{PRIMARY};width:{porc}%;transition:.3s;border-radius:4px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-top:8px">
+        <span>Usados: <strong>{usad}</strong></span><span>Total: <strong>{asig}</strong></span><span>Disponibles: <strong style="color:{PRIMARY}">{disp}</strong></span>
       </div>
     </div>
-    {"<div class='alert alert-ok'>"+msg+"</div>" if msg else ""}
-    {"<div class='alert alert-err'>"+err+"</div>" if err else ""}
+    {"<div class='alert alert-success'>"+msg+"</div>" if msg else ""}
+    {"<div class='alert alert-danger'>"+err+"</div>" if err else ""}
     {form_html}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
       <a href="/mis_permisos" class="btn btn-outline btn-sm">📋 Mis Permisos</a>
       <a href="/consulta_folio" class="btn btn-outline btn-sm">🔍 Consultar</a>
       <a href="/panel/logout" class="btn btn-danger btn-sm">🚪 Salir</a>
     </div>"""
     scripts = """<script>
 document.querySelector('form[action="/registro_usuario"]')&&document.querySelector('form[action="/registro_usuario"]').addEventListener('submit',function(){{
-  const btn=document.getElementById('btnReg');
+  const btn=this.querySelector('button[type="submit"]');
   if(btn){{btn.disabled=true;btn.textContent='⏳ Generando...';}}
   setTimeout(()=>{{if(btn){{btn.disabled=false;btn.textContent='Registrar Folio';}}}},12000);
 }});
@@ -1253,19 +1303,19 @@ async def registro_usuario_post(request: Request,
         pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
         supabase.table("verificacion_tlaxcala").update({"folios_usados": usad+1}).eq("username", request.session["username"]).execute()
         contenido = f"""
-        <p class="page-title">✅ Permiso Generado</p>
-        <div class="form-card" style="text-align:center">
-          <div style="font-size:52px;margin-bottom:12px">📄</div>
-          <h2 style="color:{C1};font-size:24px;font-weight:700;margin-bottom:4px">{fg}</h2>
+        <div class="page-title"><i class="fa-solid fa-check"></i> ✅ Permiso Generado</div>
+        <div class="form-card" style="text-align:center;max-width:500px">
+          <div style="font-size:52px;margin-bottom:16px">📄</div>
+          <h2 style="color:{PRIMARY};font-size:24px;font-weight:700;margin-bottom:8px">{fg}</h2>
           <div class="info-box" style="text-align:left">
             <strong>Vehículo:</strong> {marca.upper()} {linea.upper()} {anio}<br>
-            <strong>Serie/NIV:</strong> {serie.upper()} · <strong>Motor:</strong> {motor.upper()}<br>
+            <strong>Serie/NIV:</strong> {serie.upper()} | <strong>Motor:</strong> {motor.upper()}<br>
             <strong>Clave Vehicular:</strong> {cve_vehicular.upper()}<br>
             <strong>Color:</strong> {color.upper()}<br>
             <strong>Propietario:</strong> {nombre.upper()}<br>
             <strong>Vigencia:</strong> {fe.strftime("%d/%m/%Y")} — {fv.strftime("%d/%m/%Y")}
           </div>
-          {"<a href='"+pdf_url+"' target='_blank' class='btn btn-primary mb-3'><i class='fa-solid fa-download'></i> Descargar PDF</a>" if pdf_url else ""}
+          {"<a href='"+pdf_url+"' target='_blank' class='btn btn-primary' style='margin-bottom:12px'><i class='fa-solid fa-download'></i> Descargar PDF</a>" if pdf_url else ""}
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
             <a href="/mis_permisos" class="btn btn-outline btn-sm">📋 Mis Permisos</a>
             <a href="/registro_usuario" class="btn btn-primary btn-sm" style="width:auto">+ Nuevo</a>
@@ -1294,29 +1344,29 @@ async def mis_permisos(request: Request):
     filas = ""
     for p in permisos:
         ec  = p.get("estado_calc","")
-        be  = f'<span class="bp bp-vig">VIG</span>' if ec=="VIGENTE" else f'<span class="bp bp-ven">VEN</span>'
+        be  = f'<span class="badge badge-success">VIG</span>' if ec=="VIGENTE" else f'<span class="badge badge-danger">VEN</span>'
         pdf = p.get("pdf_url","")
-        btn = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📥</a> ' if pdf else ""
+        btn = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{PRIMARY};color:white;display:inline-flex">📥</a> ' if pdf else ""
         filas += f"""<tr>
-          <td><strong style="color:{C1}">{p.get("folio","")}</strong></td>
-          <td>{p.get("marca","")} {p.get("linea","")}<br><small>{p.get("anio","")}</small></td>
-          <td style="font-size:11px">{p.get("numero_serie","")}</td>
+          <td><strong style="color:{PRIMARY}">{p.get("folio","")}</strong></td>
+          <td>{p.get("marca","")} {p.get("linea","")}<br><small style="color:#94a3b8">{p.get("anio","")}</small></td>
+          <td style="font-size:12px">{p.get("numero_serie","")}</td>
           <td>{p.get("fe_fmt","")}</td><td>{be}</td>
-          <td>{btn}<a href="/consulta/{p.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
+          <td style="white-space:nowrap">{btn}<a href="/consulta/{p.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
         </tr>"""
     contenido = f"""
-    <p class="page-title">📋 Mis Permisos</p>
-    <div class="grid mb-3">
+    <div class="page-title"><i class="fa-solid fa-list"></i> Mis Permisos</div>
+    <div class="grid">
       <div class="stat-card"><div class="stat-num">{asig}</div><div class="stat-lbl">Asignados</div></div>
       <div class="stat-card"><div class="stat-num">{asig-usad}</div><div class="stat-lbl">Disponibles</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:#1a6e2e">{vig}</div><div class="stat-lbl">Vigentes</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:{C1}">{len(permisos)}</div><div class="stat-lbl">Total</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:{SUCCESS}">{vig}</div><div class="stat-lbl">Vigentes</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:{PRIMARY}">{len(permisos)}</div><div class="stat-lbl">Total</div></div>
     </div>
-    <div class="tabla-wrap"><table>
-      <thead><tr><th>Folio</th><th>Vehículo</th><th>Serie</th><th>Fecha</th><th>Estado</th><th>Acc.</th></tr></thead>
-      <tbody>{filas or '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">Sin permisos</td></tr>'}</tbody>
+    <div class="tabla-wrap scroll-x"><table>
+      <thead><tr><th>Folio</th><th>Vehículo</th><th>Serie</th><th>Fecha</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody>{filas or '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">Sin permisos</td></tr>'}</tbody>
     </table></div>
-    <div style="display:flex;gap:8px;margin-top:12px">
+    <div style="display:flex;gap:8px;margin-top:14px">
       <a href="/registro_usuario" class="btn btn-primary btn-sm" style="width:auto">+ Nuevo</a>
       <a href="/panel/logout" class="btn btn-danger btn-sm">🚪 Salir</a>
     </div>"""
@@ -1326,12 +1376,12 @@ async def mis_permisos(request: Request):
 @app.get("/consulta_folio", response_class=HTMLResponse)
 async def consulta_folio_form(request: Request):
     contenido = f"""
-    <p class="page-title">🔍 Consultar Folio</p>
-    <div class="form-card">
+    <div class="page-title"><i class="fa-solid fa-magnifying-glass"></i> Consultar Folio</div>
+    <div class="form-card" style="max-width:400px">
       <form method="POST" action="/consulta_folio">
         <div class="mb-3"><label class="form-label">Número de Folio</label>
           <input type="text" name="folio" class="form-control" placeholder="{FOLIO_PREFIJO}53314" required autofocus style="text-transform:uppercase"></div>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+        <button type="submit" class="btn btn-primary" style="width:100%"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
       </form>
     </div>"""
     return HTMLResponse(page("Consultar Folio","Consultar Folio", contenido))
@@ -1351,8 +1401,8 @@ async def consulta_publica(folio: str):
         res = supabase.table("folios_registrados").select("*").eq("folio", folio).execute()
 
         if not res.data:
-            badge = f"""<div style="background:#c0392b;color:white;padding:16px 18px;border-radius:10px;font-size:15px;font-weight:700;text-align:center;margin-bottom:18px">
-              <i class="fa-solid fa-circle-xmark" style="font-size:24px;display:block;margin-bottom:6px"></i>
+            badge = f"""<div style="background:{DANGER};color:white;padding:18px 20px;border-radius:12px;font-size:15px;font-weight:700;text-align:center;margin-bottom:20px">
+              <i class="fa-solid fa-circle-xmark" style="font-size:24px;display:block;margin-bottom:8px"></i>
               EL FOLIO {folio} NO ESTÁ REGISTRADO
             </div>"""
             datos_html = ""
@@ -1366,21 +1416,21 @@ async def consulta_publica(folio: str):
                 vigente = False; fe = fv = None
 
             if vigente:
-                badge = f"""<div style="background:#1a6e2e;color:white;padding:16px 18px;border-radius:10px;font-size:15px;font-weight:700;text-align:center;margin-bottom:18px">
-                  <i class="fa-solid fa-circle-check" style="font-size:24px;display:block;margin-bottom:6px"></i>
+                badge = f"""<div style="background:{SUCCESS};color:white;padding:18px 20px;border-radius:12px;font-size:15px;font-weight:700;text-align:center;margin-bottom:20px">
+                  <i class="fa-solid fa-circle-check" style="font-size:24px;display:block;margin-bottom:8px"></i>
                   EL FOLIO {folio} ESTÁ VIGENTE
                 </div>"""
             else:
-                badge = f"""<div style="background:#b38b00;color:white;padding:16px 18px;border-radius:10px;font-size:15px;font-weight:700;text-align:center;margin-bottom:18px">
-                  <i class="fa-solid fa-clock" style="font-size:24px;display:block;margin-bottom:6px"></i>
+                badge = f"""<div style="background:{WARNING};color:white;padding:18px 20px;border-radius:12px;font-size:15px;font-weight:700;text-align:center;margin-bottom:20px">
+                  <i class="fa-solid fa-clock" style="font-size:24px;display:block;margin-bottom:8px"></i>
                   EL FOLIO {folio} ESTÁ VENCIDO
                 </div>"""
 
             datos_html = f"""
-            <div style="background:white;border:1px solid {C3};border-radius:14px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:14px">
-              <div style="color:{BLUE};font-weight:700;font-size:15px;padding-bottom:10px;margin-bottom:8px;border-bottom:1px solid #eee">
-                <i class="fa-solid fa-car" style="color:{ACCENT}"></i> Datos del Vehículo
-              </div>
+            <div class="form-card mb-3">
+              <h3 style="color:{PRIMARY};font-weight:700;font-size:14px;padding-bottom:10px;margin-bottom:10px;border-bottom:2px solid {BORDER}">
+                <i class="fa-solid fa-car"></i> Datos del Vehículo
+              </h3>
               <div>
                 {_row("Marca",  f.get("marca",""))}
                 {_row("Línea",  f.get("linea",""))}
@@ -1391,12 +1441,12 @@ async def consulta_publica(folio: str):
                 {_row("Color",  f.get("color",""))}
               </div>
             </div>
-            <div style="background:white;border:1px solid {C3};border-radius:14px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:14px">
-              <div style="color:{BLUE};font-weight:700;font-size:15px;padding-bottom:10px;margin-bottom:8px;border-bottom:1px solid #eee">
-                <i class="fa-solid fa-file-shield" style="color:{ACCENT}"></i> Datos del Permiso
-              </div>
+            <div class="form-card">
+              <h3 style="color:{PRIMARY};font-weight:700;font-size:14px;padding-bottom:10px;margin-bottom:10px;border-bottom:2px solid {BORDER}">
+                <i class="fa-solid fa-file-shield"></i> Datos del Permiso
+              </h3>
               <div>
-                {_row("Folio",  f'<span style="color:{C1};font-weight:700">{folio}</span>')}
+                {_row("Folio",  f'<span style="color:{PRIMARY};font-weight:700">{folio}</span>')}
                 {_row("Propietario", f.get("nombre",""))}
                 {_row("Fecha de Expedición",  fe.strftime("%d/%m/%Y") if fe else "—")}
                 {_row("Fecha de Vencimiento", fv.strftime("%d/%m/%Y") if fv else "—")}
@@ -1404,7 +1454,7 @@ async def consulta_publica(folio: str):
             </div>"""
 
         contenido = f"""
-        <p class="page-title">🔍 Consultar Folio</p>
+        <div class="page-title"><i class="fa-solid fa-magnifying-glass"></i> Consultar Folio</div>
         {badge}
         {datos_html}
         <a href="/consulta_folio" class="btn btn-outline btn-sm">← Nueva consulta</a>
@@ -1412,18 +1462,18 @@ async def consulta_publica(folio: str):
         return HTMLResponse(page(f"Folio {folio}", "Consultar Folio", contenido))
     except Exception as e:
         print(f"[CONSULTA] Error: {e}")
-        return HTMLResponse(page("Error", "Consultar Folio", f"<p style='color:#c00'>Error: {str(e)}</p><a href='/consulta_folio' class='btn btn-outline btn-sm'>← Volver</a>"))
+        return HTMLResponse(page("Error", "Consultar Folio", f"<p style='color:{DANGER}'>Error: {str(e)}</p><a href='/consulta_folio' class='btn btn-outline btn-sm'>← Volver</a>"))
 
 # ===================== TABLAS BD =====================
 @app.get("/panel/tablas", response_class=HTMLResponse)
 async def admin_tablas(request: Request):
     if not request.session.get("admin"): return RedirectResponse(url="/panel/login", status_code=303)
-    cards = "".join([f"""<div class="form-card mb-3">
-      <strong style="color:{C1};font-size:15px">🗄️ {info['nombre']}</strong>
-      <p style="font-size:12px;color:#888;margin:4px 0 12px"><code>{nombre}</code></p>
-      <a href="/panel/tabla/{nombre}" class="btn btn-primary btn-sm" style="width:auto">Ver y editar →</a>
+    cards = "".join([f"""<div class="form-card">
+      <strong style="color:{PRIMARY};font-size:14px">🗄️ {info['nombre']}</strong>
+      <p style="font-size:11px;color:#94a3b8;margin:6px 0 12px"><code>{nombre}</code></p>
+      <a href="/panel/tabla/{nombre}" class="btn btn-primary btn-sm" style="width:100%">Ver y editar →</a>
     </div>""" for nombre, info in TABLAS_DISPONIBLES.items()])
-    contenido = f'<p class="page-title">🗄️ Tablas Base de Datos</p>{cards}'
+    contenido = f'<div class="page-title"><i class="fa-solid fa-database"></i> Tablas Base de Datos</div><div class="grid">{cards}</div>'
     return HTMLResponse(page("Tablas BD","Tablas BD", contenido))
 
 @app.get("/panel/tabla/{nombre_tabla}", response_class=HTMLResponse)
@@ -1441,40 +1491,39 @@ async def admin_tabla_detalle(nombre_tabla: str, request: Request):
     total_pages = max(1,(total+PAGE_SIZE-1)//PAGE_SIZE)
     th = "".join(f"<th>{c}</th>" for c in columnas) + "<th></th>"
     def _fila(i, reg):
-        celdas = f'<td style="color:#bbb;font-size:10px">{offset+i+1}</td>'
+        celdas = f'<td style="color:#cbd5e1;font-size:11px;width:30px">{offset+i+1}</td>'
         for col in columnas:
-            val = reg.get(col); disp = str(val) if val is not None else "null"
-            cls = "cv nv" if val is None else "cv"
-            celdas += f'<td><span class="{cls}" data-col="{col}" data-pk="{str(reg.get(pk_col,""))}" data-val="{str(val or "")}" onclick="editCell(this)">{disp[:25]}</span></td>'
-        celdas += f'<td><button class="del-btn" onclick="delRow(this,\'{str(reg.get(pk_col,""))}\',\'row{i}\')">✕</button></td>'
+            val = reg.get(col); disp = str(val)[:25] if val is not None else "null"
+            celdas += f'<td><span data-col="{col}" data-pk="{str(reg.get(pk_col,""))}" data-val="{str(val or "")}" onclick="editCell(this)" style="cursor:pointer;padding:4px;border-radius:4px">{disp}</span></td>'
+        celdas += f'<td><button class="btn btn-sm btn-danger" style="padding:3px 6px;font-size:10px" onclick="delRow(this,\'{str(reg.get(pk_col,""))}\',\'row{i}\')">×</button></td>'
         return f'<tr id="row{i}">{celdas}</tr>'
-    tbody = "".join(_fila(i, registros[i]) for i in range(len(registros))) or "<tr><td colspan='20' style='text-align:center;padding:20px;color:#999'>Sin registros</td></tr>"
+    tbody = "".join(_fila(i, registros[i]) for i in range(len(registros))) or "<tr><td colspan='20' style='text-align:center;padding:20px;color:#94a3b8'>Sin registros</td></tr>"
     pag = ""
     if total_pages > 1:
         pag = '<div style="display:flex;gap:8px;justify-content:center;padding:14px">'
         if page_n>1: pag += f'<a href="?q={q}&page={page_n-1}" class="btn btn-outline btn-sm">← Ant</a>'
-        pag += f'<span class="btn btn-sm" style="background:{C1};color:white">{page_n}/{total_pages}</span>'
+        pag += f'<span class="btn btn-sm" style="background:{PRIMARY};color:white;cursor:default">{page_n}/{total_pages}</span>'
         if page_n<total_pages: pag += f'<a href="?q={q}&page={page_n+1}" class="btn btn-outline btn-sm">Sig →</a>'
         pag += '</div>'
     contenido = f"""
-    <p class="page-title">📊 {info['nombre']}</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+    <div class="page-title">📊 {info['nombre']}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
       <form method="GET" style="display:contents">
-        <input type="text" name="q" value="{q}" placeholder="Buscar..." class="form-control" style="max-width:220px">
+        <input type="text" name="q" value="{q}" placeholder="Buscar..." class="form-control" style="max-width:200px;flex:1;min-width:150px">
         <button type="submit" class="btn btn-primary btn-sm" style="width:auto">🔍</button>
         {"<a href='/panel/tabla/"+nombre_tabla+"' class='btn btn-outline btn-sm'>✕</a>" if q else ""}
       </form>
-      <span style="font-size:12px;color:#888;margin-left:auto">{total} registros</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:auto">{total} registros</span>
     </div>
-    <div class="tabla-wrap"><table id="tbl"><thead><tr><th>#</th>{th}</tr></thead><tbody>{tbody}</tbody></table>{pag}</div>
-    <div class="mt-3"><a href="/panel/tablas" class="btn btn-outline btn-sm">← Tablas</a></div>
+    <div class="tabla-wrap scroll-x"><table id="tbl" style="font-size:12px"><thead><tr><th style="width:30px">#</th>{th}</tr></thead><tbody>{tbody}</tbody></table>{pag}</div>
+    <div style="margin-top:14px"><a href="/panel/tablas" class="btn btn-outline btn-sm">← Tablas</a></div>
     <div class="toast-f" id="toast"></div>"""
     scripts = f"""<script>
 const TABLA="{nombre_tabla}",PK_COL="{pk_col}";
-function editCell(span){{const col=span.dataset.col,pk=span.dataset.pk,orig=span.dataset.val;const inp=document.createElement('input');inp.type='text';inp.className='cell-input';inp.value=orig;inp._span=span;inp._orig=orig;inp._col=col;inp._pk=pk;span.parentNode.insertBefore(inp,span);span.style.display='none';inp.focus();inp.select();inp.addEventListener('blur',()=>fin(inp));inp.addEventListener('keydown',e=>{{if(e.key==='Enter'){{e.preventDefault();inp.blur();}}if(e.key==='Escape'){{inp._cancel=true;inp.blur();}}}});}}
-function fin(inp){{const span=inp._span,nv=inp.value.trim(),orig=inp._orig;inp.remove();span.style.display='';if(inp._cancel||nv===orig)return;span.textContent=nv||'null';span.dataset.val=nv;span.classList.toggle('nv',!nv);fetch('/panel/api/update_cell',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tabla:TABLA,pk_col:PK_COL,pk_val:inp._pk,col:inp._col,val:nv}})}}).then(r=>r.json()).then(d=>{{if(d.ok)toast('✓ guardado',true);else{{span.textContent=orig||'null';span.dataset.val=orig;toast('Error: '+(d.error||'?'),false);}}}}).catch(()=>{{span.textContent=orig||'null';toast('Error de red',false);}});}}
-function delRow(btn,pk,rowId){{if(!confirm('¿Eliminar?'))return;btn.disabled=true;fetch('/panel/api/delete_row',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tabla:TABLA,pk_col:PK_COL,pk_val:pk}})}}).then(r=>r.json()).then(d=>{{if(d.ok){{const tr=document.getElementById(rowId);if(tr){{tr.style.opacity='0';setTimeout(()=>tr.remove(),250);}}toast('Eliminado',true);}}else{{btn.disabled=false;toast('Error: '+(d.error||'?'),false);}}}}).catch(()=>{{btn.disabled=false;toast('Error de red',false);}});}}
-let tt;function toast(msg,ok){{const t=document.getElementById('toast');t.textContent=msg;t.className='toast-f show '+(ok?'ok':'err');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2500);}}
+function editCell(span){{const col=span.dataset.col,pk=span.dataset.pk,orig=span.dataset.val;const inp=document.createElement('input');inp.type='text';inp.className='form-control';inp.value=orig;inp.style.marginBottom='0';inp._span=span;inp._orig=orig;inp._col=col;inp._pk=pk;span.parentNode.insertBefore(inp,span);span.style.display='none';inp.focus();inp.select();inp.addEventListener('blur',()=>fin(inp));inp.addEventListener('keydown',e=>{{if(e.key==='Enter'){{e.preventDefault();inp.blur();}}if(e.key==='Escape'){{inp._cancel=true;inp.blur();}}}});}}
+function fin(inp){{const span=inp._span,nv=inp.value.trim(),orig=inp._orig;inp.remove();span.style.display='';if(inp._cancel||nv===orig)return;span.textContent=nv||'null';span.dataset.val=nv;fetch('/panel/api/update_cell',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tabla:TABLA,pk_col:PK_COL,pk_val:inp._pk,col:inp._col,val:nv}})}}).then(r=>r.json()).then(d=>{{if(d.ok)toast('✓ guardado',true);else{{span.textContent=orig||'null';span.dataset.val=orig;toast('Error',false);}}}}).catch(()=>{{span.textContent=orig||'null';toast('Error de red',false);}});}}
+function delRow(btn,pk,rowId){{if(!confirm('¿Eliminar?'))return;btn.disabled=true;fetch('/panel/api/delete_row',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tabla:TABLA,pk_col:PK_COL,pk_val:pk}})}}).then(r=>r.json()).then(d=>{{if(d.ok){{const tr=document.getElementById(rowId);if(tr){{tr.style.opacity='0';setTimeout(()=>tr.remove(),250);}}toast('Eliminado',true);}}else{{btn.disabled=false;toast('Error',false);}}}}).catch(()=>{{btn.disabled=false;toast('Error de red',false);}});}}
+let tt;function toast(msg,ok){{const t=document.getElementById('toast');t.textContent=msg;t.style.background=ok?'rgba(22,163,74,.1)':'rgba(220,38,38,.1)';t.style.color=ok?'#16a34a':'#dc2626';t.style.borderLeft='3px solid '+(ok?'#16a34a':'#dc2626');t.className='toast-f show';t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>{{t.style.display='none'}},2500);}}
 </script>"""
     return HTMLResponse(page(info["nombre"], info["nombre"], contenido, scripts))
 
@@ -1497,7 +1546,7 @@ async def api_delete_row(request: Request):
 # ===================== HEALTH =====================
 @app.get("/health")
 async def health():
-    return {"status":"healthy","version":"1.0","entidad":ENTIDAD,
+    return {"status":"healthy","version":"2.0","entidad":ENTIDAD,
             "timers_activos":len(timers_activos),
             "siguiente_folio":f"{FOLIO_PREFIJO}{_folio_counter['siguiente']}"}
 
