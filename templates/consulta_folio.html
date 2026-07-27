@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="es" data-beasties-container>
+<head>
+  <meta charset="utf-8">
+  <title>GOB TLAX - Consulta de Folio</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="logo.ico">
+  
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <style>
+    :root {
+      --primary-color: #005cbb;
+      --secondary-color: #0369a1;
+      --navbar-color: #422b7c;
+      --success-color: #16a34a;
+      --danger-color: #dc2626;
+      --warning-color: #f59e0b;
+      --border-color: #e2e8f0;
+      --text-color: #1e293b;
+      --light-gray: #f8f9fa;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: var(--light-gray);
+      color: var(--text-color);
+    }
+
+    /* NAVBAR */
+    .navbar-color {
+      background-color: var(--navbar-color);
+      color: #fff;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: 300px;
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 1020;
+      overflow-y: auto;
+      background-color: #fff;
+      border-right: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .sidebar-header {
+      background-color: #a11a5c;
+      color: #fff;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .sidebar-header h6 {
+      margin-top: 10px;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .sidebar-header img {
+      width: 80px;
+      height: 80px;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    /* MAIN CONTENT */
+    .main-content {
+      margin-left: 300px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .main-wrapper {
+      flex: 1;
+      padding: 30px;
+      overflow-y: auto;
+    }
+
+    /* CONSULTA CARD */
+    .consulta-container {
+      max-width: 700px;
+      margin: 50px auto;
+    }
+
+    .consulta-card {
+      background: #fff;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      padding: 40px;
+    }
+
+    .folio-header {
+      text-align: center;
+      margin-bottom: 35px;
+      border-bottom: 2px solid #a11a5c;
+      padding-bottom: 20px;
+    }
+
+    .folio-numero {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #a11a5c;
+      margin-bottom: 10px;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 2px;
+    }
+
+    .folio-status {
+      font-size: 1.1rem;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 20px;
+      display: inline-block;
+      margin-top: 10px;
+    }
+
+    .status-vigente {
+      background-color: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+
+    .status-vencido {
+      background-color: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+
+    .status-no-encontrado {
+      background-color: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+
+    /* DATOS */
+    .datos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 25px;
+      margin-top: 30px;
+    }
+
+    .dato-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dato-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .dato-valor {
+      font-size: 1rem;
+      color: var(--text-color);
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    /* FULL WIDTH */
+    .dato-item.full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* FOOTER */
+    .footer-bg {
+      background-color: #f7f9f9;
+      color: var(--text-color);
+      text-align: center;
+      padding: 20px;
+      margin-top: auto;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .footer-bg h5 {
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .footer-bg p {
+      margin: 0;
+      font-size: 0.9rem;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 992px) {
+      .sidebar {
+        width: 250px;
+      }
+
+      .main-content {
+        margin-left: 250px;
+      }
+
+      .sidebar-header img {
+        width: 60px;
+        height: 60px;
+      }
+
+      .datos-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .dato-item.full-width {
+        grid-column: 1;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .sidebar {
+        display: none;
+      }
+
+      .main-content {
+        margin-left: 0;
+      }
+
+      .consulta-card {
+        padding: 20px;
+      }
+
+      .folio-numero {
+        font-size: 1.8rem;
+      }
+
+      .datos-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .consulta-container {
+        margin: 20px auto;
+      }
+    }
+
+    /* ANIMACIÓN */
+    .consulta-card {
+      animation: slideUp 0.5s ease-out;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* TEMA CLARO */
+    .theme-switch-wrapper {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      height: 32px;
+      margin-right: auto;
+    }
+
+    .theme-switch {
+      width: 60px;
+      height: 28px;
+      background-color: #ccc;
+      border-radius: 50px;
+      position: relative;
+      transition: background-color 0.3s ease;
+    }
+
+    .switch-thumb {
+      width: 24px;
+      height: 24px;
+      background-color: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: left 0.3s ease;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .home-icon {
+      color: #dbdbdb;
+      transition: transform 0.2s ease, color 0.2s ease;
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .home-icon:hover {
+      transform: scale(1.2);
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- SIDEBAR -->
+  <nav class="sidebar d-none d-lg-block">
+    <div class="sidebar-header">
+      <img src="./assets/img/imagenesCuerpo/perfil-admin-SMyT.png" alt="Foto de perfil">
+      <h6>Menú de Trámites y Servicios</h6>
+    </div>
+    <ul class="nav flex-column px-3 mt-4">
+      <li class="nav-item mb-3">
+        <a href="#" class="nav-link text-dark" style="font-weight: 600;">
+          <i class="bi bi-house-door-fill me-2" style="color: #a11a5c;"></i>
+          Menu Principal
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+    <!-- NAVBAR -->
+    <nav class="navbar navbar-expand-lg navbar-color">
+      <div class="container-fluid">
+        <button type="button" class="btn btn-outline-light d-lg-none me-3">
+          <i class="bi bi-list"></i>
+        </button>
+        
+        <div class="theme-switch-wrapper">
+          <div class="theme-switch">
+            <div class="switch-thumb">
+              <i class="bi bi-sun-fill"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="ms-auto d-none d-lg-block">
+          <a href="#" class="home-icon me-3">
+            <i class="bi bi-house-door-fill"></i>
+          </a>
+        </div>
+      </div>
+    </navbar>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <div class="main-wrapper">
+      <div class="consulta-container">
+        
+        <!-- CARD DE CONSULTA -->
+        <div class="consulta-card">
+          
+          <!-- ENCABEZADO CON FOLIO Y ESTADO -->
+          <div class="folio-header">
+            <div class="folio-numero">ZX53314</div>
+            <div class="folio-status status-vigente">
+              ✓ VIGENTE
+            </div>
+          </div>
+
+          <!-- DATOS DEL FOLIO -->
+          <div class="datos-grid">
+            
+            <div class="dato-item">
+              <div class="dato-label">Fecha de Expedición</div>
+              <div class="dato-valor">15 de Septiembre, 2026</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Fecha de Vencimiento</div>
+              <div class="dato-valor">15 de Octubre, 2026</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Marca</div>
+              <div class="dato-valor">Toyota</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Línea</div>
+              <div class="dato-valor">Prius</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Año</div>
+              <div class="dato-valor">2024</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Color</div>
+              <div class="dato-valor">Blanco Perla</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Serie</div>
+              <div class="dato-valor">7A3KZ5B82FK123456</div>
+            </div>
+
+            <div class="dato-item">
+              <div class="dato-label">Motor</div>
+              <div class="dato-valor">2ZR-FXE</div>
+            </div>
+
+            <div class="dato-item full-width">
+              <div class="dato-label">Propietario</div>
+              <div class="dato-valor">Juan Carlos Rodríguez García</div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer-bg">
+      <h5>Gobierno del Estado de Tlaxcala</h5>
+      <p>© <b>2026</b> | Secretaría de Finanzas | Informática Financiera</p>
+    </footer>
+
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>
