@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional, List
 from dotenv import load_dotenv
+from pathlib import Path
 import json
 import secrets
 import logging
@@ -53,6 +54,12 @@ FOLIO_INICIO = 53314
 BUCKET_NAME = "permisos-tlaxcala"
 PLANTILLA_PDF = "TLAXCALA2026(1).pdf"
 
+# Crear directorios necesarios
+Path("assets").mkdir(exist_ok=True)
+Path("assets/img").mkdir(exist_ok=True)
+Path("assets/img/imagenesCuerpo").mkdir(exist_ok=True)
+Path("templates").mkdir(exist_ok=True)
+
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,11 +73,18 @@ app = FastAPI(title="GOB TLAX - Permisos Provisionales v3.0")
 # Middleware
 app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe(32))
 
-# Static files
-app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+# Static files - Con manejo de error
+try:
+    app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+except Exception as e:
+    logger.warning(f"No se pudo montar /assets: {e}")
 
 # Templates
-templates = Jinja2Templates(directory="templates")
+try:
+    templates = Jinja2Templates(directory="templates")
+except Exception as e:
+    logger.warning(f"No se pudo cargar templates: {e}")
+    templates = None
 
 # Supabase
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -122,20 +136,28 @@ def generar_folio() -> str:
 
 def generar_qr(data: str) -> str:
     """Genera QR y retorna base64"""
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    
-    return base64.b64encode(buffer.getvalue()).decode()
+    try:
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+        
+        return base64.b64encode(buffer.getvalue()).decode()
+    except Exception as e:
+        logger.error(f"Error generando QR: {e}")
+        return ""
 
 def generar_pdf(folio: str, datos: dict) -> bytes:
     """Genera PDF con datos del folio"""
     try:
+        if not os.path.exists(PLANTILLA_PDF):
+            logger.warning(f"Plantilla PDF no encontrada: {PLANTILLA_PDF}")
+            return b""
+        
         pdf_doc = fitz.open(PLANTILLA_PDF)
         page = pdf_doc[0]
         
@@ -225,7 +247,7 @@ def obtener_estadisticas() -> dict:
         }
     except Exception as e:
         logger.error(f"Error obteniendo estadísticas: {e}")
-        return {}
+        return {"total_folios": 0, "folios_vigentes": 0, "folios_vencidos": 0}
 
 def obtener_folios_paginado(pagina: int = 1, por_pagina: int = 20) -> dict:
     """Obtiene folios con paginación"""
@@ -243,7 +265,7 @@ def obtener_folios_paginado(pagina: int = 1, por_pagina: int = 20) -> dict:
         }
     except Exception as e:
         logger.error(f"Error obteniendo folios: {e}")
-        return {}
+        return {"folios": [], "total": 0, "pagina": pagina, "total_paginas": 0}
 
 # ============================================================================
 # RUTAS PÚBLICAS
@@ -364,14 +386,17 @@ async def consulta_folio_resultado(folio: str, request: Request):
             status_badge = estado.upper()
             status_class = estado
         
-        return templates.TemplateResponse("consulta_folio.html", {
-            "request": request,
-            "folio": folio,
-            "estado": estado,
-            "status_badge": status_badge,
-            "status_class": status_class,
-            "datos": datos or {}
-        })
+        if templates:
+            return templates.TemplateResponse("consulta_folio.html", {
+                "request": request,
+                "folio": folio,
+                "estado": estado,
+                "status_badge": status_badge,
+                "status_class": status_class,
+                "datos": datos or {}
+            })
+        else:
+            return HTMLResponse(f"<h1>Template engine no disponible</h1>")
     except Exception as e:
         logger.error(f"Error en consulta: {e}")
         return HTMLResponse(f"<h1>Error: {str(e)}</h1>", status_code=500)
@@ -538,7 +563,7 @@ async def panel_folios(request: Request, pagina: int = 1):
         <nav class="navbar navbar-dark bg-dark mb-4">
             <div class="container-fluid">
                 <a href="/panel/admin" class="btn btn-outline-light">← Volver</a>
-                <span class="navbar-brand mb-0">Folios Registrados</span>
+                <span class="navbar-brand mb-0">Folios Registrados (Página {pagina})</span>
             </div>
         </nav>
         <div class="container-fluid">
@@ -554,11 +579,21 @@ async def panel_folios(request: Request, pagina: int = 1):
                     </tr>
                 </thead>
                 <tbody>
-                    {filas_html}
+                    {filas_html if filas_html else '<tr><td colspan="6">Sin folios registrados</td></tr>'}
                 </tbody>
             </table>
             <nav>
                 <ul class="pagination">
+                    <li class="page-item"><a class="page-link" href="/panel/folios?pagina=1">Primera</a></li>
+                    <li class="page-item"><a class="page-link" href="/panel/folios?pagina={max(1, pagina-1)}">Anterior</a></li>
+                    <li class="page-item active"><a class="page-link" href="#">Página {pagina}</a></li>
+                    <li class="page-item"><a class="page-link" href="/panel/folios?pagina={pagina+1}">Siguiente</a></li>
+                    <li class="page-item"><a class="page-link" href="/panel/folios?pagina={total_paginas}">Última</a></li>
+                </ul>
+            </nav>
+        </div>
+    </body>
+    </html>
     """)
 
 @app.get("/panel/logout")
@@ -624,9 +659,9 @@ async def crear_usuario_post(request: Request, username: str = Form(...), passwo
             "folios_usados": 0
         }).execute()
         
-        return HTMLResponse(f"<h2>✅ Usuario '{username}' creado correctamente</h2><a href='/panel/admin'>Volver al panel</a>")
+        return HTMLResponse(f"<h2>✅ Usuario '{username}' creado correctamente</h2><a href='/panel/admin' class='btn btn-primary'>Volver al panel</a>")
     except Exception as e:
-        return HTMLResponse(f"<h2>❌ Error: {str(e)}</h2>")
+        return HTMLResponse(f"<h2>❌ Error: {str(e)}</h2><a href='/panel/crear_usuario' class='btn btn-secondary'>Reintentar</a>")
 
 @app.get("/panel/validar/{folio}", response_class=HTMLResponse)
 async def validar_folio(folio: str, request: Request):
@@ -636,9 +671,10 @@ async def validar_folio(folio: str, request: Request):
     try:
         resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
         if resultado.data:
-            datos = resultado.data[0]
             supabase_client.table("folios_registrados").update({"estado_pago": "validado"}).eq("folio", folio).execute()
-            return HTMLResponse(f"<h2>✅ Folio {folio} validado correctamente</h2><a href='/panel/folios'>Ver folios</a>")
+            return HTMLResponse(f"<h2>✅ Folio {folio} validado correctamente</h2><a href='/panel/folios' class='btn btn-primary'>Ver folios</a>")
+        else:
+            return HTMLResponse(f"<h2>❌ Folio no encontrado</h2><a href='/panel/folios' class='btn btn-secondary'>Volver</a>")
     except Exception as e:
         return HTMLResponse(f"<h2>❌ Error: {str(e)}</h2>")
 
@@ -651,7 +687,10 @@ async def descargar_pdf(folio: str, request: Request):
         resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
         if resultado.data:
             pdf_bytes = generar_pdf(folio, resultado.data[0])
-            return FileResponse(BytesIO(pdf_bytes), media_type="application/pdf", filename=f"{folio}.pdf")
+            if pdf_bytes:
+                return FileResponse(BytesIO(pdf_bytes), media_type="application/pdf", filename=f"{folio}.pdf")
+            else:
+                return HTMLResponse("<h1>Error: No se pudo generar el PDF</h1>")
     except Exception as e:
         logger.error(f"Error descargando PDF: {e}")
     
@@ -679,14 +718,14 @@ async def panel_tablas(request: Request):
         </nav>
         <div class="container">
             <div class="row">
-                <div class="col-md-3">
-                    <a href="/panel/tabla/folios_registrados" class="btn btn-primary w-100 mb-2">Folios Registrados</a>
+                <div class="col-md-4">
+                    <a href="/panel/tabla/folios_registrados" class="btn btn-primary w-100 mb-2">📋 Folios Registrados</a>
                 </div>
-                <div class="col-md-3">
-                    <a href="/panel/tabla/verificacion_tlaxcala" class="btn btn-primary w-100 mb-2">Usuarios</a>
+                <div class="col-md-4">
+                    <a href="/panel/tabla/verificacion_tlaxcala" class="btn btn-primary w-100 mb-2">👤 Usuarios</a>
                 </div>
-                <div class="col-md-3">
-                    <a href="/panel/tabla/folio_watermark" class="btn btn-primary w-100 mb-2">Watermark</a>
+                <div class="col-md-4">
+                    <a href="/panel/tabla/folio_watermark" class="btn btn-primary w-100 mb-2">🏷️ Watermark</a>
                 </div>
             </div>
         </div>
@@ -813,7 +852,8 @@ async def health():
         "status": "ok",
         "version": "3.0",
         "timestamp": datetime.now().isoformat(),
-        "sistema": ENTIDAD
+        "sistema": ENTIDAD,
+        "directorio_assets": "OK" if Path("assets").exists() else "CREADO"
     }
 
 # ============================================================================
@@ -825,6 +865,8 @@ async def startup():
     logger.info("🚀 GOB TLAX Sistema v3.0 iniciado")
     logger.info(f"Base URL: {BASE_URL}")
     logger.info(f"Entidad: {ENTIDAD}")
+    logger.info(f"Directorio assets: {Path('assets').absolute()}")
+    logger.info(f"Directorio templates: {Path('templates').absolute()}")
 
 if __name__ == "__main__":
     import uvicorn
