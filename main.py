@@ -40,13 +40,13 @@ _folio_counter = {"siguiente": FOLIO_INICIO}
 _folio_lock    = asyncio.Lock()
 PAGE_SIZE = 100
 
-# Paleta real extraída del portal oficial tlaxcaladigital.gob.mx (Angular/Bootstrap)
-C1 = "#422b7c"   # navbar-color (morado oscuro, real del portal)
-C2 = "#341f63"   # variante oscura para hover
-C3 = "#e6d194"   # borde dorado de las tarjetas (card-menu-principal)
-ACCENT = "#a11a5c"   # magenta de iconos/secciones (arrow-icon-section)
-GREEN  = "#64ad0b"   # verde de botones de acción (btn-custom-of)
-BLUE   = "#2856ad"   # azul de subtítulos de tarjeta (tittle-sub-menu)
+# Paleta propia del servicio (independiente de cualquier paleta oficial de gobierno)
+C1 = "#2b3f6b"   # azul marino principal (topbar / sidebar)
+C2 = "#1f2f52"   # variante oscura para hover
+C3 = "#d8c98a"   # borde dorado de las tarjetas
+ACCENT = "#8a1f4f"   # acento de iconos/secciones
+GREEN  = "#4c8a12"   # botones de acción principal
+BLUE   = "#2856ad"   # subtítulos de tarjeta
 
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -550,6 +550,15 @@ async def ver_folios_activos(message: types.Message):
 async def fallback(message: types.Message):
     await message.answer("🏛️ Gobierno del Estado de Tlaxcala — SMyT.\n\n📋 Use /tlaxcala para generar un permiso.")
 
+# ===================== MARCA / IDENTIDAD PROPIA =====================
+# Nombre e imagen del servicio: son propios, no reproducen el logo/escudo ni el
+# nombre oficial del portal de gobierno. Cambia BRAND_NOMBRE y las rutas de
+# imagen por las tuyas en /static.
+BRAND_NOMBRE   = os.getenv("BRAND_NOMBRE", "Gestoría Vehicular Digital")
+BRAND_SLOGAN   = os.getenv("BRAND_SLOGAN", "Trámites vehiculares en línea — Tlaxcala")
+LOGO_URL       = os.getenv("LOGO_URL", "/static/logo_brand.png")
+ESCUDO_URL     = os.getenv("ESCUDO_URL", "/static/logo_brand.png")
+
 # ===================== HTML CSS =====================
 CSS = f"""
 *{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
@@ -565,11 +574,12 @@ body{{margin:0;background:#f4f4f4;}}
 .sidebar-header p{{margin:6px 0 0;font-size:14px;opacity:.95;font-weight:600;}}
 .sidebar ul{{list-style:none;margin:0;padding:10px 0;}}
 .sidebar ul li a{{display:flex;align-items:center;gap:12px;padding:14px 20px;color:#000;text-decoration:none;font-size:14px;font-weight:600;transition:.15s;border-bottom:1px solid #f0f0f0;}}
-.sidebar ul li a:hover{{background:rgba(161,26,92,.08);}}
+.sidebar ul li a:hover{{background:rgba(138,31,79,.08);}}
 .sidebar ul li a i{{color:{ACCENT};width:18px;text-align:center;}}
 .sidebar ul li a.danger{{color:#c00;}}.sidebar ul li a.danger i{{color:#c00;}}
 .topbar{{background:{C1};color:white;padding:12px 16px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15);}}
 .topbar img{{height:38px;object-fit:contain;}}
+.topbar .brand-text{{font-weight:700;font-size:15px;letter-spacing:.2px;}}
 .hamburger{{display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:4px;background:none;border:none;}}
 .hamburger span{{display:block;width:24px;height:3px;background:white;border-radius:2px;}}
 @media (min-width:992px){{ .hamburger{{display:none;}} }}
@@ -600,12 +610,12 @@ tbody tr:last-child td{{border-bottom:none;}}tbody tr:hover td{{background:#f6f3
 .form-card{{background:#f8f9fa;border-radius:14px;padding:20px;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);}}
 .form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
 .form-control{{display:block;width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:.2s;font-family:inherit;}}
-.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(75,46,131,.1);}}
+.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(43,63,107,.1);}}
 select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}}
 .mb-3{{margin-bottom:14px;}}.mb-4{{margin-bottom:20px;}}.mt-3{{margin-top:14px;}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;text-decoration:none;transition:.2s;font-family:inherit;}}
 .btn-primary{{background:{GREEN};color:white;width:100%;}}
-.btn-primary:hover{{background:#5a9e07;}}
+.btn-primary:hover{{background:#3f7310;}}
 .btn-sm{{padding:5px 12px;font-size:11px;border-radius:6px;}}
 .btn-outline{{background:white;border:1.5px solid #ddd;color:#444;}}
 .btn-outline:hover{{border-color:{C1};color:{C1};}}
@@ -613,7 +623,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .alert{{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;}}
 .alert-ok{{background:#d4edda;color:#155724;border:1px solid #c3e6cb;}}
 .alert-err{{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}}
-.barra-c{{width:100%;height:24px;background:rgba(75,46,131,.12);border-radius:12px;overflow:hidden;margin:8px 0;}}
+.barra-c{{width:100%;height:24px;background:rgba(43,63,107,.12);border-radius:12px;overflow:hidden;margin:8px 0;}}
 .barra-p{{height:100%;background:{C1};border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700;}}
 .info-box{{background:#f8f8f8;border-radius:8px;padding:14px;font-size:13px;margin-bottom:14px;line-height:1.7;}}
 .cv{{display:inline-block;min-width:50px;max-width:180px;overflow:hidden;text-overflow:ellipsis;cursor:text;padding:2px 4px;border-radius:4px;border:1px solid transparent;color:#333;}}
@@ -633,6 +643,19 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .dato-row:last-child{{border-bottom:none;}}
 .dato-label{{color:#888;font-weight:600;}}
 .dato-valor{{font-weight:600;text-align:right;max-width:60%;}}
+
+/* ===== Portal público (menú de servicios + ficha de trámite) ===== */
+.tittle-menu{{font-size:22px;font-weight:700;color:#1d1d1b;display:flex;align-items:center;gap:8px;}}
+.tittle-sub-menu{{color:{BLUE};font-weight:700;font-size:16px;margin-bottom:6px;}}
+.costo-color-text{{color:{GREEN};}}
+.card-menu-principal{{border:1px solid {C3};border-radius:14px;background:#f8f9fa;box-shadow:0 4px 16px rgba(0,0,0,.06);}}
+.card-menu-principal .card-body{{padding:20px;}}
+.text-parrafo{{color:#222;line-height:1.6;}}
+.container-fluid-portal{{max-width:1100px;margin:0 auto;padding:24px 16px;}}
+.row-portal{{display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;}}
+.col-portal-4{{flex:1 1 300px;}}
+.col-portal-8{{flex:2 1 480px;}}
+.proc-list li{{margin-bottom:10px;}}
 """
 
 FA    = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">'
@@ -643,14 +666,10 @@ function closeNav(){document.getElementById('offsb').classList.remove('open');do
 document.addEventListener('DOMContentLoaded',function(){document.getElementById('overlay').addEventListener('click',closeNav);});
 </script>"""
 
-# Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — sube logo_tlaxcala.png a la carpeta /static de tu repo
-LOGO_URL   = "/static/logo_tlaxcala.png"
-ESCUDO_URL = "/static/logo_tlaxcala.png"
-
 def head(titulo):
     return f"""<!DOCTYPE html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{titulo} — Tlaxcala</title>
+<title>{titulo} — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
 {ROBOTO}{FA}<style>{CSS}</style></head><body>"""
 
@@ -668,22 +687,23 @@ def navbar():
     links = _sidebar_links()
     return f"""<nav class="sidebar">
   <div class="sidebar-header">
-    <img src="{LOGO_URL}" alt="Tlaxcala">
-    <p>Secretaría de Movilidad<br>y Transporte</p>
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <p>{BRAND_NOMBRE}</p>
   </div>
   <ul>{links}</ul>
 </nav>
 <div class="overlay" id="overlay"></div>
 <nav class="offcanvas-sb" id="offsb">
   <div class="sidebar-header">
-    <img src="{LOGO_URL}" alt="Tlaxcala">
-    <p>Secretaría de Movilidad<br>y Transporte</p>
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <p>{BRAND_NOMBRE}</p>
   </div>
   <ul>{links}</ul>
 </nav>
 <div class="topbar">
   <button class="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
-  <img src="{LOGO_URL}" alt="Tlaxcala">
+  <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+  <span class="brand-text">{BRAND_NOMBRE}</span>
 </div>"""
 
 def admin_bar(seccion):
@@ -701,7 +721,7 @@ def login_html(error=False):
     err = '<div class="alert alert-err"><i class="fa-solid fa-triangle-exclamation"></i> Usuario o contraseña incorrectos</div>' if error else ""
     return f"""<!DOCTYPE html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Acceso — Tlaxcala SMyT</title>
+<title>Acceso — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
 {ROBOTO}{FA}
 <style>
@@ -716,7 +736,7 @@ body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:colu
 .ls{{text-align:center;font-size:12px;color:#777;margin-bottom:22px;}}
 .form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
 .form-control{{display:block;width:100%;padding:11px 13px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;}}
-.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(75,46,131,.1);}}
+.form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(43,63,107,.1);}}
 .mb-3{{margin-bottom:14px;}}.mb-4{{margin-bottom:20px;}}
 .alert{{padding:11px 13px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:14px;}}
 .alert-err{{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}}
@@ -724,11 +744,11 @@ body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:colu
 .btn-in:hover{{background:{C2};}}
 .lf{{background:rgba(0,0,0,.2);color:rgba(255,255,255,.7);text-align:center;padding:14px;font-size:12px;}}
 </style></head><body>
-<div class="lh"><img src="{LOGO_URL}" alt="Tlaxcala"></div>
+<div class="lh"><img src="{LOGO_URL}" alt="{BRAND_NOMBRE}"></div>
 <div class="lw"><div class="lc">
-  <div class="le"><img src="{ESCUDO_URL}" alt="Escudo"></div>
-  <div class="lt">SMyT Tlaxcala</div>
-  <div class="ls">Gobierno del Estado de Tlaxcala<br>Sistema Administrativo</div>
+  <div class="le"><img src="{ESCUDO_URL}" alt="{BRAND_NOMBRE}"></div>
+  <div class="lt">{BRAND_NOMBRE}</div>
+  <div class="ls">{BRAND_SLOGAN}<br>Sistema Administrativo</div>
   {err}
   <form method="POST" action="/panel/login">
     <div class="mb-3"><label class="form-label">Usuario</label><input type="text" name="username" class="form-control" required autofocus autocomplete="off"></div>
@@ -736,8 +756,55 @@ body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:colu
     <button type="submit" class="btn-in"><i class="fa-solid fa-right-to-bracket"></i> &nbsp;Ingresar al Sistema</button>
   </form>
 </div></div>
-<div class="lf">Secretaría de Movilidad y Transporte — Gobierno del Estado de Tlaxcala © 2026</div>
+<div class="lf">{BRAND_NOMBRE} © 2026</div>
 </body></html>"""
+
+# ===================== PORTAL PÚBLICO (menú + ficha de trámite) =====================
+PORTAL_ITEMS = [
+    {"icono": "fa-car-front", "titulo": "Permiso Provisional de Circulación", "ruta": "/portal/permiso-provisional-de-circulacion", "activo": True},
+    {"icono": "fa-file-circle-check", "titulo": "Refrendo y/o Tenencia", "ruta": "#", "activo": False},
+    {"icono": "fa-file-circle-minus", "titulo": "Baja de Vehículos", "ruta": "#", "activo": False},
+    {"icono": "fa-magnifying-glass", "titulo": "Consultar / Validar Folio", "ruta": "/consulta_folio", "activo": True},
+]
+
+def portal_navbar():
+    items_html = "".join(
+        f'<li><a href="{it["ruta"]}"><i class="fa-solid {it["icono"]}"></i>{it["titulo"]}</a></li>'
+        for it in PORTAL_ITEMS
+    )
+    return f"""<nav class="sidebar">
+  <div class="sidebar-header">
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <p>{BRAND_NOMBRE}</p>
+  </div>
+  <ul>
+    <li><a href="/portal"><i class="fa-solid fa-house"></i>Inicio</a></li>
+    {items_html}
+    <li><a href="/panel/login"><i class="fa-solid fa-right-to-bracket"></i>Acceso al Sistema</a></li>
+  </ul>
+</nav>
+<div class="overlay" id="overlay"></div>
+<nav class="offcanvas-sb" id="offsb">
+  <div class="sidebar-header">
+    <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+    <p>{BRAND_NOMBRE}</p>
+  </div>
+  <ul>
+    <li><a href="/portal"><i class="fa-solid fa-house"></i>Inicio</a></li>
+    {items_html}
+    <li><a href="/panel/login"><i class="fa-solid fa-right-to-bracket"></i>Acceso al Sistema</a></li>
+  </ul>
+</nav>
+<div class="topbar">
+  <button class="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
+  <img src="{LOGO_URL}" alt="{BRAND_NOMBRE}">
+  <span class="brand-text">{BRAND_NOMBRE}</span>
+</div>"""
+
+def portal_page(titulo, contenido):
+    return (head(titulo) + '<div class="layout-container">' + portal_navbar()
+            + '<div class="main-content-wrapper">'
+            + f'<div class="container-fluid-portal">{contenido}</div>' + footer())
 
 # ===================== LIFESPAN =====================
 _keep_task = None
@@ -761,10 +828,70 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError): await _keep_task
     await bot.session.close()
 
-app = FastAPI(lifespan=lifespan, title="Tránsito Tlaxcala", version="1.0")
+app = FastAPI(lifespan=lifespan, title="Trámites Vehiculares", version="1.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "tlaxcala_clave_super_segura_cambiar"))
 try: app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 except Exception: pass
+
+# ===================== PORTAL PÚBLICO — RUTAS =====================
+@app.get("/portal", response_class=HTMLResponse)
+async def portal_home():
+    cards = "".join(f"""<a href="{it['ruta']}" class="menu-btn" style="text-align:left;display:flex;align-items:center;gap:14px;padding:18px">
+        <i class="fa-solid {it['icono']}" style="font-size:26px"></i>
+        <span style="font-size:14px">{it['titulo']}</span>
+      </a>""" for it in PORTAL_ITEMS)
+    contenido = f"""
+    <h4 class="tittle-menu"><i class="fa-solid fa-clipboard-list"></i> Trámites y Servicios</h4>
+    <p class="text-parrafo" style="color:#666">{BRAND_SLOGAN}</p>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">{cards}</div>
+    """
+    return HTMLResponse(portal_page("Trámites y Servicios", contenido))
+
+@app.get("/portal/permiso-provisional-de-circulacion", response_class=HTMLResponse)
+async def portal_permiso_provisional():
+    contenido = f"""
+    <div class="row-portal">
+      <div class="col-portal-4">
+        <div class="card-menu-principal">
+          <div class="card-body">
+            <h4 class="tittle-menu" style="font-size:18px"><i class="fa-solid fa-car-front"></i> Permiso Provisional de Circulación</h4>
+            <hr>
+            <h4 class="tittle-sub-menu">Descripción</h4>
+            <p class="text-parrafo">Permiso provisional de circulación para vehículos nuevos y usados, mientras se realiza el trámite de placas definitivas.</p>
+            <h4 class="tittle-sub-menu">Costo</h4>
+            <p class="costo-color-text"><b>$352.00 MXN</b></p>
+            <h4 class="tittle-sub-menu">Documento a recibir</h4>
+            <p class="text-parrafo">Permiso provisional de circulación en PDF, con folio y código QR de verificación.</p>
+            <h4 class="tittle-sub-menu">Vigencia</h4>
+            <p class="text-parrafo">30 días naturales a partir de la fecha de expedición.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-portal-8">
+        <div class="card-menu-principal mb-3">
+          <div class="card-body" style="text-align:center">
+            <p class="text-parrafo mb-2">Si deseas iniciar tu trámite, ingresa al sistema y captura los datos de tu vehículo.</p>
+            <a href="/panel/login" class="btn btn-primary" style="width:auto;display:inline-flex"><i class="fa-solid fa-right-to-bracket"></i> Iniciar Trámite</a>
+          </div>
+        </div>
+        <div class="card-menu-principal">
+          <div class="card-body">
+            <h4 class="tittle-sub-menu">Procedimiento</h4>
+            <ol class="text-parrafo proc-list">
+              <li>Ingresa al sistema con tu usuario y contraseña.</li>
+              <li>Captura los datos del vehículo: marca, línea, año, número de serie, número de motor, color y clave vehicular.</li>
+              <li>Captura el nombre completo del propietario.</li>
+              <li>El sistema genera tu folio y tu permiso en PDF de manera automática.</li>
+              <li>Realiza el pago correspondiente y envía tu comprobante dentro de las 36 horas siguientes.</li>
+              <li>Una vez validado el pago, tu permiso queda activo y puedes descargarlo o consultarlo con tu folio.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mt-3"><a href="/portal" class="btn btn-outline btn-sm">← Volver a Trámites y Servicios</a></div>
+    """
+    return HTMLResponse(portal_page("Permiso Provisional de Circulación", contenido))
 
 # ===================== WEBHOOK =====================
 @app.post("/webhook")
@@ -781,7 +908,7 @@ async def telegram_webhook(request: Request):
 async def root(request: Request):
     if request.session.get("admin"): return RedirectResponse(url="/panel/admin", status_code=303)
     if request.session.get("username"): return RedirectResponse(url="/registro_usuario", status_code=303)
-    return RedirectResponse(url="/panel/login", status_code=303)
+    return RedirectResponse(url="/portal", status_code=303)
 
 @app.get("/panel/login", response_class=HTMLResponse)
 async def login_get(request: Request):
@@ -828,9 +955,10 @@ async def panel_admin(request: Request):
       <a href="/panel/crear_usuario" class="menu-btn"><i class="fa-solid fa-user-plus"></i><span>Crear Usuario</span></a>
       <a href="/panel/tablas" class="menu-btn"><i class="fa-solid fa-database"></i><span>Tablas BD</span></a>
       <a href="/consulta_folio" class="menu-btn"><i class="fa-solid fa-magnifying-glass"></i><span>Consultar Folio</span></a>
+      <a href="/portal" class="menu-btn"><i class="fa-solid fa-globe"></i><span>Ver Portal Público</span></a>
       <a href="/panel/logout" class="menu-btn danger grid-full"><i class="fa-solid fa-right-from-bracket"></i><span>Cerrar Sesión</span></a>
     </div>"""
-    return HTMLResponse(page("Panel Admin","Panel de Administración — Tlaxcala SMyT", contenido))
+    return HTMLResponse(page("Panel Admin","Panel de Administración", contenido))
 
 # ===================== FOLIOS =====================
 @app.get("/panel/folios", response_class=HTMLResponse)
@@ -916,7 +1044,7 @@ async def admin_folios(request: Request):
       <thead><tr><th>Folio</th><th>Titular</th><th>Vehículo</th><th>Fechas</th><th>Estado</th><th>Acc.</th></tr></thead>
       <tbody>{filas or '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">Sin folios</td></tr>'}</tbody>
     </table></div>"""
-    return HTMLResponse(page("Folios","Folios Registrados — Tlaxcala", contenido))
+    return HTMLResponse(page("Folios","Folios Registrados", contenido))
 
 @app.post("/panel/validar/{folio}")
 async def validar_pago(request: Request, folio: str):
@@ -979,7 +1107,7 @@ async def registro_admin_get(request: Request):
         <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-file-circle-plus"></i> Generar Permiso</button>
       </form>
     </div>"""
-    return HTMLResponse(page("Registrar Permiso","Registrar Permiso — Tlaxcala", contenido))
+    return HTMLResponse(page("Registrar Permiso","Registrar Permiso", contenido))
 
 @app.post("/panel/registro_admin")
 async def registro_admin_post(request: Request,
@@ -1027,7 +1155,7 @@ async def crear_usuario_get(request: Request):
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Crear Usuario</button>
       </form>
     </div>"""
-    return HTMLResponse(page("Crear Usuario","Crear Usuario — Tlaxcala", contenido))
+    return HTMLResponse(page("Crear Usuario","Crear Usuario", contenido))
 
 @app.post("/panel/crear_usuario")
 async def crear_usuario_post(request: Request,
@@ -1071,7 +1199,7 @@ async def registro_usuario_get(request: Request):
       </form>
     </div>""" if disp > 0 else '<div class="alert alert-err">Sin folios disponibles. Contacta al administrador.</div>'
     contenido = f"""
-    <p class="page-title">Registrar Permiso — Tlaxcala</p>
+    <p class="page-title">Registrar Permiso</p>
     <div class="form-card mb-3">
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <span style="font-weight:700;font-size:14px">Mis Folios</span>
@@ -1195,7 +1323,7 @@ async def mis_permisos(request: Request):
       <a href="/registro_usuario" class="btn btn-primary btn-sm" style="width:auto">+ Nuevo</a>
       <a href="/panel/logout" class="btn btn-danger btn-sm">🚪 Salir</a>
     </div>"""
-    return HTMLResponse(page("Mis Permisos","Mis Permisos — Tlaxcala", contenido))
+    return HTMLResponse(page("Mis Permisos","Mis Permisos", contenido))
 
 # ===================== CONSULTA PÚBLICA =====================
 @app.get("/consulta_folio", response_class=HTMLResponse)
@@ -1280,20 +1408,20 @@ async def consulta_publica(folio: str):
 
         html = f"""<!DOCTYPE html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Consulta Folio {folio} — Tlaxcala</title>
+<title>Consulta Folio {folio} — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
 {ROBOTO}{FA}<style>{CSS}</style></head><body>
-<nav class="topbar" style="justify-content:center"><img src="{LOGO_URL}" alt="Tlaxcala"></nav>
-<div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> Verificación de Permiso — Tlaxcala SMyT</div>
+<nav class="topbar" style="justify-content:center"><img src="{LOGO_URL}" alt="{BRAND_NOMBRE}"><span class="brand-text">{BRAND_NOMBRE}</span></nav>
+<div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> Verificación de Permiso</div>
 <div class="content" style="max-width:500px">
   {badge}
   {datos_html}
-  <a href="https://smyt.tlaxcala.gob.mx/" class="btn btn-primary mt-3">
-    <i class="fa-solid fa-arrow-left"></i> Volver a SMyT Tlaxcala
+  <a href="/portal" class="btn btn-primary mt-3">
+    <i class="fa-solid fa-arrow-left"></i> Volver al Portal
   </a>
 </div>
 <footer style="margin-top:30px;background:#1a1a1a;color:#aaa;padding:18px;text-align:center;font-size:12px">
-  © Gobierno del Estado de Tlaxcala 2026 — Secretaría de Movilidad y Transporte
+  © {BRAND_NOMBRE} 2026
 </footer>
 </body></html>"""
         return HTMLResponse(html)
@@ -1310,7 +1438,7 @@ async def admin_tablas(request: Request):
       <a href="/panel/tabla/{nombre}" class="btn btn-primary btn-sm" style="width:auto">Ver y editar →</a>
     </div>""" for nombre, info in TABLAS_DISPONIBLES.items()])
     contenido = f'<p class="page-title">🗄️ Tablas Base de Datos</p>{cards}'
-    return HTMLResponse(page("Tablas BD","Tablas BD — Tlaxcala", contenido))
+    return HTMLResponse(page("Tablas BD","Tablas BD", contenido))
 
 @app.get("/panel/tabla/{nombre_tabla}", response_class=HTMLResponse)
 async def admin_tabla_detalle(nombre_tabla: str, request: Request):
