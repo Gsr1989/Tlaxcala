@@ -736,6 +736,20 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .anim-scroll.AbajoArriba{{transform:translateY(50px);}}
 .anim-scroll.ArribaAbajo{{transform:translateY(-50px);}}
 .anim-scroll.is-visible{{opacity:1;transform:translate(0);}}
+
+/* ---------- HEADER DE TRÁMITE (clon exacto de la ficha oficial: título+línea+subtítulo a la izq, logo doble a la der) ---------- */
+.tramite-header{{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;}}
+.tramite-header-text{{flex:1;min-width:220px;}}
+.tramite-header-text h4{{font-size:19px;font-weight:700;color:#1d1d1b;margin:0 0 10px;display:flex;align-items:center;gap:8px;}}
+.tramite-header-text hr{{border:none;border-top:1px solid #ddd;width:50%;margin:0 0 8px;}}
+.tramite-header-text h6{{font-size:13px;color:#555;margin:0;font-weight:400;}}
+.tramite-header-logos{{display:flex;align-items:center;gap:10px;flex-shrink:0;}}
+.tramite-header-logos img{{max-height:60px;object-fit:contain;}}
+@media (max-width:767px){{
+  .tramite-header{{flex-direction:column;text-align:center;}}
+  .tramite-header-text hr{{margin:0 auto 8px;}}
+  .tramite-header-logos{{justify-content:center;}}
+}}
 """
 
 FA     = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">'
@@ -758,6 +772,23 @@ document.addEventListener('DOMContentLoaded',function(){
 # Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — sube logo_tlaxcala.png a /static
 LOGO_URL   = "/static/logo_tlaxcala.png"
 ESCUDO_URL = "/static/logo_tlaxcala.png"
+# Logo doble "TLAXCALA · SECRETARÍA DE FINANZAS" que usa el portal oficial en el header de cada trámite
+# (tlaxcala-financiera.png). Si aún no lo subes, el onerror lo oculta sin romper el layout.
+LOGO_SECRETARIA_URL = "/static/tlaxcala_financiera.png"
+
+def header_tramite(titulo_html: str, subtitulo: str = "OFICINA VIRTUAL DE TRÁMITES Y SERVICIOS", icono: str = "fa-solid fa-car") -> str:
+    """Header clonado de la ficha oficial: título + línea + subtítulo a la izquierda, logo doble a la derecha."""
+    return f"""<div class="tramite-header">
+      <div class="tramite-header-text">
+        <h4><i class="{icono} arrow-icon-section"></i> {titulo_html}</h4>
+        <hr>
+        <h6>{subtitulo}</h6>
+      </div>
+      <div class="tramite-header-logos">
+        <img src="{LOGO_URL}" alt="Tlaxcala">
+        <img src="{LOGO_SECRETARIA_URL}" alt="Secretaría de Finanzas" onerror="this.style.display='none'">
+      </div>
+    </div>"""
 
 def head(titulo):
     return f"""<!DOCTYPE html><html lang="es"><head>
@@ -961,6 +992,7 @@ async def panel_admin(request: Request):
         pass
     color_pend = "#dc3545" if pendientes else "#1a6e2e"
     contenido = f"""
+    {header_tramite("PANEL DE ADMINISTRACIÓN", icono="fa-solid fa-house")}
     <div class="row-2 mb-3">
       <div class="stat-card"><div class="stat-num">{len(timers_activos)}</div><div class="stat-lbl">Timers Activos</div></div>
       <div class="stat-card"><div class="stat-num" style="color:{color_pend}">{pendientes}</div><div class="stat-lbl">Pendientes Pago</div></div>
@@ -1063,7 +1095,7 @@ async def admin_folios(request: Request):
       <span style="font-size:12px;color:#888">{len(folios)} resultados</span>
     </div>"""
     contenido = f"""{modal_html}
-    <p class="page-title">Folios Registrados</p>
+    {header_tramite("FOLIOS REGISTRADOS", icono="fa-solid fa-list-check")}
     {msg_html}{filtros}
     <div class="tabla-wrap"><table>
       <thead><tr><th>Folio</th><th>Titular</th><th>Vehículo</th><th>Fechas</th><th>Estado</th><th>Acc.</th></tr></thead>
@@ -1118,7 +1150,8 @@ async def registro_admin_get(request: Request):
     err = request.query_params.get("error", "")
     err_html = f'<div class="alert alert-err">{err}</div>' if err else ""
     contenido = f"""
-    <p class="page-title">Registrar Permiso</p>{err_html}
+    {header_tramite("REGISTRAR PERMISO (ADMIN)")}
+    {err_html}
     <div class="form-card">
     <form method="POST" action="/panel/registro_admin">
       <div class="mb-3"><label class="form-label">Folio manual <small style="color:#999;font-weight:400">(vacío = auto)</small></label>
@@ -1182,7 +1215,7 @@ async def crear_usuario_get(request: Request):
     msg = request.query_params.get("msg", "")
     err = request.query_params.get("error", "")
     contenido = f"""
-    <p class="page-title">Crear Usuario</p>
+    {header_tramite("CREAR USUARIO", icono="fa-solid fa-user-plus")}
     {"<div class='alert alert-ok'>"+msg+"</div>" if msg else ""}
     {"<div class='alert alert-err'>"+err+"</div>" if err else ""}
     <div class="form-card">
@@ -1246,7 +1279,7 @@ async def registro_usuario_get(request: Request):
     </form>
     </div>""" if disp > 0 else '<div class="alert alert-err">Sin folios disponibles. Contacta al administrador.</div>'
     contenido = f"""
-    <p class="page-title">Registrar Permiso — Tlaxcala</p>
+    {header_tramite("PERMISO PROVISIONAL DE CIRCULACIÓN")}
     <div class="form-card mb-3">
       <div style="display:flex;justify-content:space-between;margin-bottom:8px">
         <span style="font-weight:700;font-size:14px">Mis Folios</span>
@@ -1308,7 +1341,7 @@ async def registro_usuario_post(request: Request,
         pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
         supabase.table("verificacion_tlaxcala").update({"folios_usados": usad + 1}).eq("username", request.session["username"]).execute()
         contenido = f"""
-        <p class="page-title">✅ Permiso Generado</p>
+        {header_tramite("✅ PERMISO GENERADO")}
         <div class="form-card" style="text-align:center">
           <div style="font-size:52px;margin-bottom:12px">📄</div>
           <h2 style="color:{C1};font-size:24px;font-weight:700;margin-bottom:4px">{fg}</h2>
@@ -1365,7 +1398,7 @@ async def mis_permisos(request: Request):
           <td>{btn}<a href="/consulta/{p.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
         </tr>"""
     contenido = f"""
-    <p class="page-title">📋 Mis Permisos</p>
+    {header_tramite("MIS PERMISOS", icono="fa-solid fa-folder-open")}
     <div class="grid mb-3">
       <div class="stat-card"><div class="stat-num">{asig}</div><div class="stat-lbl">Asignados</div></div>
       <div class="stat-card"><div class="stat-num">{asig-usad}</div><div class="stat-lbl">Disponibles</div></div>
@@ -1387,7 +1420,7 @@ async def mis_permisos(request: Request):
 @app.get("/consulta_folio", response_class=HTMLResponse)
 async def consulta_folio_form(request: Request):
     contenido = f"""
-    <p class="page-title">🔍 Consultar Folio</p>
+    {header_tramite("CONSULTAR FOLIO", icono="fa-solid fa-magnifying-glass")}
     <div class="form-card">
     <form method="POST" action="/consulta_folio">
       <div class="mb-3"><label class="form-label">Número de Folio</label>
