@@ -862,12 +862,11 @@ def login_html(error=False):
 <style>
 *{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
 body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:column;}}
-.lh{{background:white;padding:12px 20px;text-align:center;border-bottom:4px solid {C3};}}
-.lh img{{height:60px;object-fit:contain;}}
 .lw{{flex:1;display:flex;align-items:center;justify-content:center;padding:30px 15px;}}
-.lc{{background:white;border-radius:16px;padding:32px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);}}
-.le{{text-align:center;margin-bottom:16px;}}.le img{{height:65px;border-radius:50%;}}
-.lt{{text-align:center;font-size:20px;font-weight:700;color:{C1};margin-bottom:4px;}}
+.lc{{background:white;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.3);border:1px solid {C3};}}
+.le{{text-align:center;margin-bottom:20px;}}.le img{{max-height:70px;max-width:100%;object-fit:contain;}}
+.lt{{text-align:center;font-size:18px;font-weight:700;color:#1d1d1b;margin-bottom:8px;}}
+.lhr{{border:none;border-top:1px solid #ddd;width:50%;margin:0 auto 10px;}}
 .ls{{text-align:center;font-size:12px;color:#777;margin-bottom:22px;}}
 .form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
 .form-control{{display:block;width:100%;padding:11px 13px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;}}
@@ -879,11 +878,11 @@ body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:colu
 .btn-in:hover{{background:{C2};}}
 .lf{{background:rgba(0,0,0,.2);color:rgba(255,255,255,.7);text-align:center;padding:14px;font-size:12px;}}
 </style></head><body>
-<div class="lh"><img src="{LOGO_URL}" alt="Tlaxcala"></div>
 <div class="lw"><div class="lc">
-  <div class="le"><img src="{ESCUDO_URL}" alt="Escudo"></div>
-  <div class="lt">SMyT Tlaxcala</div>
-  <div class="ls">Gobierno del Estado de Tlaxcala<br>Sistema Administrativo</div>
+  <div class="le"><img src="{LOGO_URL}" alt="Tlaxcala — Secretaría de Finanzas"></div>
+  <div class="lt">Acceso al Sistema — SMyT Tlaxcala</div>
+  <hr class="lhr">
+  <div class="ls">Gobierno del Estado de Tlaxcala · Sistema Administrativo</div>
   {err}
   <form method="POST" action="/panel/login">
     <div class="mb-3"><label class="form-label">Usuario</label><input type="text" name="username" class="form-control" required autofocus autocomplete="off"></div>
@@ -1529,7 +1528,7 @@ async def admin_tablas(request: Request):
       <p style="font-size:12px;color:#888;margin:4px 0 12px"><code>{nombre}</code></p>
       <a href="/panel/tabla/{nombre}" class="btn btn-primary btn-sm" style="width:auto">Ver y editar →</a>
     </div>""" for nombre, info in TABLAS_DISPONIBLES.items()])
-    contenido = f'<p class="page-title">🗄️ Tablas Base de Datos</p>{cards}'
+    contenido = f'{header_tramite("TABLAS BASE DE DATOS", icono="fa-solid fa-database")}{cards}'
     return HTMLResponse(page("Tablas BD", "Tablas BD — Tlaxcala", contenido))
 
 @app.get("/panel/tabla/{nombre_tabla}", response_class=HTMLResponse)
@@ -1576,7 +1575,7 @@ async def admin_tabla_detalle(nombre_tabla: str, request: Request):
             pag += f'<a href="?q={q}&page={page_n+1}" class="btn btn-outline btn-sm">Sig →</a>'
         pag += '</div>'
     contenido = f"""
-    <p class="page-title">📊 {info['nombre']}</p>
+    {header_tramite(info['nombre'].upper(), icono="fa-solid fa-table")}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
       <form method="GET" style="display:contents">
         <input type="text" name="q" value="{q}" placeholder="Buscar..." class="form-control" style="max-width:220px">
