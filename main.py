@@ -1,19 +1,22 @@
 import asyncio
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
+import json
+import secrets
+import logging
+from decimal import Decimal
 
 # FastAPI
 from fastapi import FastAPI, Request, HTTPException, Depends, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 # Supabase
-import supabase
 from supabase import create_client, Client
 
 # PDF & QR
@@ -30,12 +33,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Utils
-import secrets
-import logging
-from decimal import Decimal
+# ============================================================================
+# CONFIGURACIÓN
+# ============================================================================
 
-# Load environment
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -60,7 +61,7 @@ logger = logging.getLogger(__name__)
 # FASTAPI SETUP
 # ============================================================================
 
-app = FastAPI(title="GOB TLAX - Permisos Provisionales")
+app = FastAPI(title="GOB TLAX - Permisos Provisionales v3.0")
 
 # Middleware
 app.add_middleware(SessionMiddleware, secret_key=secrets.token_urlsafe(32))
@@ -135,11 +136,9 @@ def generar_qr(data: str) -> str:
 def generar_pdf(folio: str, datos: dict) -> bytes:
     """Genera PDF con datos del folio"""
     try:
-        # Cargar plantilla
         pdf_doc = fitz.open(PLANTILLA_PDF)
         page = pdf_doc[0]
         
-        # Coordenadas (pts 792x612)
         coords = {
             "folio": (460, 270),
             "fecha_exp": (52, 205),
@@ -155,7 +154,6 @@ def generar_pdf(folio: str, datos: dict) -> bytes:
             "cve": (204, 437),
         }
         
-        # Insertar texto
         page.insert_text(coords["folio"], folio, fontsize=35, color=(0, 0, 0))
         page.insert_text(coords["fecha_exp"], datos.get("fecha_expedicion", ""), fontsize=9)
         page.insert_text(coords["fecha_ven"], datos.get("fecha_vencimiento", ""), fontsize=9)
@@ -169,12 +167,10 @@ def generar_pdf(folio: str, datos: dict) -> bytes:
         page.insert_text(coords["linea"], datos.get("linea", "").upper(), fontsize=9)
         page.insert_text(coords["cve"], datos.get("cve_vehicular", "").upper(), fontsize=9)
         
-        # QR codes
         qr_url = f"{BASE_URL}/consulta/{folio}"
-        qr_data = generar_qr(qr_url)
-        qr_data_texto = generar_qr(str(datos))
+        generar_qr(qr_url)
+        generar_qr(str(datos))
         
-        # Guardar PDF en Supabase
         pdf_bytes = pdf_doc.write()
         pdf_doc.close()
         
@@ -214,19 +210,53 @@ def guardar_folio(folio: str, datos: dict, usuario_id: str = None) -> bool:
         logger.error(f"Error guardando folio: {e}")
         return False
 
+def obtener_estadisticas() -> dict:
+    """Obtiene estadísticas del sistema"""
+    try:
+        total = supabase_client.table("folios_registrados").select("count", count="exact").execute()
+        vigentes = supabase_client.table("folios_registrados").select("*").eq("estado", "vigente").execute()
+        vencidos = supabase_client.table("folios_registrados").select("*").eq("estado", "vencido").execute()
+        
+        return {
+            "total_folios": total.count or 0,
+            "folios_vigentes": len(vigentes.data or []),
+            "folios_vencidos": len(vencidos.data or []),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error obteniendo estadísticas: {e}")
+        return {}
+
+def obtener_folios_paginado(pagina: int = 1, por_pagina: int = 20) -> dict:
+    """Obtiene folios con paginación"""
+    try:
+        inicio = (pagina - 1) * por_pagina
+        resultado = supabase_client.table("folios_registrados").select("*").range(inicio, inicio + por_pagina - 1).execute()
+        
+        total = supabase_client.table("folios_registrados").select("count", count="exact").execute()
+        
+        return {
+            "folios": resultado.data or [],
+            "total": total.count or 0,
+            "pagina": pagina,
+            "total_paginas": (total.count or 0 + por_pagina - 1) // por_pagina
+        }
+    except Exception as e:
+        logger.error(f"Error obteniendo folios: {e}")
+        return {}
+
 # ============================================================================
 # RUTAS PÚBLICAS
 # ============================================================================
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Root redirect"""
     return RedirectResponse(url="/portal")
 
 @app.get("/portal", response_class=HTMLResponse)
 async def portal(request: Request):
-    """Portal público"""
-    return HTMLResponse("""
+    stats = obtener_estadisticas()
+    return HTMLResponse(f"""
     <!DOCTYPE html>
     <html lang="es">
     <head>
@@ -234,17 +264,41 @@ async def portal(request: Request):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>GOB TLAX - Permisos Provisionales</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
         <style>
-            body {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }}
-            .hero {{ padding: 60px 20px; text-align: center; color: white; }}
-            .card {{ border: none; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.1); }}
+            body {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; font-family: 'Roboto', sans-serif; }}
+            .hero {{ padding: 80px 20px; text-align: center; color: white; }}
+            .hero h1 {{ font-size: 3rem; font-weight: 700; margin-bottom: 20px; text-shadow: 0 4px 8px rgba(0,0,0,0.2); }}
+            .hero p {{ font-size: 1.3rem; opacity: 0.95; margin-bottom: 40px; }}
+            .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 60px; }}
+            .stat-card {{ background: white; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); text-align: center; }}
+            .stat-card h3 {{ color: #667eea; font-weight: 700; margin: 0; }}
+            .stat-card p {{ color: #999; margin-top: 10px; }}
+            .btn-primary {{ background: white; color: #667eea; border: none; font-weight: 600; padding: 12px 40px; }}
+            .btn-primary:hover {{ transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.2); }}
         </style>
     </head>
     <body>
         <div class="hero">
-            <h1 class="mb-4">Permiso Provisional de Circulación</h1>
-            <p class="lead mb-4">Secretaría de Movilidad y Transporte - Tlaxcala</p>
-            <a href="/consulta_folio" class="btn btn-light btn-lg">Consultar Folio</a>
+            <h1><i class="bi bi-car-front-fill"></i> Permiso Provisional de Circulación</h1>
+            <p>Secretaría de Movilidad y Transporte - Tlaxcala</p>
+            <div style="margin: 30px 0;">
+                <a href="/consulta_folio" class="btn btn-primary btn-lg">🔍 Consultar Folio</a>
+            </div>
+            <div class="stats" style="max-width: 800px; margin: 0 auto;">
+                <div class="stat-card">
+                    <h3>{stats.get('total_folios', 0)}</h3>
+                    <p>Folios Emitidos</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{stats.get('folios_vigentes', 0)}</h3>
+                    <p>Vigentes</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{stats.get('folios_vencidos', 0)}</h3>
+                    <p>Vencidos</p>
+                </div>
+            </div>
         </div>
     </body>
     </html>
@@ -252,7 +306,6 @@ async def portal(request: Request):
 
 @app.get("/consulta_folio", response_class=HTMLResponse)
 async def consulta_folio_page(request: Request):
-    """Página de consulta de folio"""
     return HTMLResponse("""
     <!DOCTYPE html>
     <html lang="es">
@@ -286,14 +339,12 @@ async def consulta_folio_page(request: Request):
 
 @app.get("/consulta", response_class=HTMLResponse)
 async def consulta(request: Request, folio: str):
-    """Consulta de folio - redirige a la ruta con folio"""
     return RedirectResponse(url=f"/consulta/{folio}")
 
 @app.get("/consulta/{folio}", response_class=HTMLResponse)
 async def consulta_folio_resultado(folio: str, request: Request):
-    """Resultado de consulta de folio con template"""
+    """Resultado de consulta con template"""
     try:
-        # Buscar folio en BD
         resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
         
         if not resultado.data:
@@ -303,8 +354,6 @@ async def consulta_folio_resultado(folio: str, request: Request):
             status_class = "no-encontrado"
         else:
             datos = resultado.data[0]
-            
-            # Validar si está vencido
             fecha_venc_str = datos.get("fecha_vencimiento")
             try:
                 fecha_venc = datetime.strptime(fecha_venc_str, "%d/%m/%Y")
@@ -333,7 +382,6 @@ async def consulta_folio_resultado(folio: str, request: Request):
 
 @app.get("/panel/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """Página de login"""
     return HTMLResponse("""
     <!DOCTYPE html>
     <html>
@@ -343,20 +391,23 @@ async def login_page(request: Request):
         <title>Admin - Login</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
-            body {{ background: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }}
+            body {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; min-height: 100vh; }}
             .login-card {{ width: 100%; max-width: 400px; }}
+            .card {{ border: none; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }}
         </style>
     </head>
     <body>
         <div class="login-card">
-            <div class="card shadow-lg">
+            <div class="card">
                 <div class="card-body p-5">
-                    <h3 class="text-center mb-4">Panel Admin</h3>
+                    <h3 class="text-center mb-4">Panel Administración</h3>
                     <form method="post" action="/panel/login">
                         <div class="mb-3">
+                            <label class="form-label">Usuario</label>
                             <input type="text" name="username" class="form-control" placeholder="Usuario" required>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">Contraseña</label>
                             <input type="password" name="password" class="form-control" placeholder="Contraseña" required>
                         </div>
                         <button type="submit" class="btn btn-primary w-100">Ingresar</button>
@@ -370,15 +421,153 @@ async def login_page(request: Request):
 
 @app.post("/panel/login", response_class=HTMLResponse)
 async def login_post(request: Request, username: str = Form(...), password: str = Form(...)):
-    """Validar login"""
     if username == ADMIN_USER and password == ADMIN_PASS:
         request.session["admin"] = True
         return RedirectResponse(url="/panel/admin", status_code=302)
-    return HTMLResponse("<h1>Credenciales inválidas</h1>")
+    return HTMLResponse("<h1>❌ Credenciales inválidas</h1>")
 
 @app.get("/panel/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request):
-    """Panel admin - requiere login"""
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    stats = obtener_estadisticas()
+    
+    return HTMLResponse(f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Admin Panel</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+        <style>
+            .sidebar {{ background: #422b7c; color: white; min-height: 100vh; }}
+            .card {{ border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }}
+            .stat {{ padding: 20px; background: white; border-radius: 8px; text-align: center; }}
+            .stat-number {{ font-size: 2rem; font-weight: 700; color: #667eea; }}
+        </style>
+    </head>
+    <body>
+        <nav class="navbar navbar-dark bg-dark mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand mb-0 h5"><i class="bi bi-shield-lock"></i> GOB TLAX Admin v3.0</span>
+                <a href="/panel/logout" class="btn btn-outline-light">Logout</a>
+            </div>
+        </nav>
+        <div class="container-fluid">
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stat">
+                        <div class="stat-number">{stats.get('total_folios', 0)}</div>
+                        <div>Total Folios</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat">
+                        <div class="stat-number" style="color: #16a34a;">{stats.get('folios_vigentes', 0)}</div>
+                        <div>Vigentes</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat">
+                        <div class="stat-number" style="color: #dc2626;">{stats.get('folios_vencidos', 0)}</div>
+                        <div>Vencidos</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-12">
+                    <div class="card p-4">
+                        <h4>Opciones Disponibles</h4>
+                        <ul class="list-group mt-3">
+                            <li class="list-group-item"><a href="/panel/folios">📋 Ver todos los folios</a></li>
+                            <li class="list-group-item"><a href="/panel/crear_usuario">👤 Crear usuario</a></li>
+                            <li class="list-group-item"><a href="/panel/registro_admin">📝 Registro manual</a></li>
+                            <li class="list-group-item"><a href="/panel/tablas">🗄️ Editor de tablas</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """)
+
+@app.get("/panel/folios", response_class=HTMLResponse)
+async def panel_folios(request: Request, pagina: int = 1):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    datos_pag = obtener_folios_paginado(pagina, 20)
+    folios = datos_pag.get("folios", [])
+    total_paginas = datos_pag.get("total_paginas", 0)
+    
+    filas_html = ""
+    for f in folios:
+        fecha_exp = f.get("fecha_expedicion", "N/A")
+        nombre = f.get("nombre", "N/A")
+        marca = f.get("marca", "N/A")
+        estado = f.get("estado", "N/A")
+        color_estado = "success" if estado == "vigente" else "danger"
+        
+        filas_html += f"""
+        <tr>
+            <td><strong>{f.get('folio')}</strong></td>
+            <td>{nombre}</td>
+            <td>{marca} {f.get('linea', '')}</td>
+            <td>{fecha_exp}</td>
+            <td><span class="badge bg-{color_estado}">{estado.upper()}</span></td>
+            <td>
+                <a href="/panel/validar/{f.get('folio')}" class="btn btn-sm btn-info">Validar</a>
+                <a href="/panel/pdf/{f.get('folio')}" class="btn btn-sm btn-secondary">PDF</a>
+            </td>
+        </tr>
+        """
+    
+    return HTMLResponse(f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Folios - Admin</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <nav class="navbar navbar-dark bg-dark mb-4">
+            <div class="container-fluid">
+                <a href="/panel/admin" class="btn btn-outline-light">← Volver</a>
+                <span class="navbar-brand mb-0">Folios Registrados</span>
+            </div>
+        </nav>
+        <div class="container-fluid">
+            <table class="table table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Folio</th>
+                        <th>Propietario</th>
+                        <th>Vehículo</th>
+                        <th>Expedición</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filas_html}
+                </tbody>
+            </table>
+            <nav>
+                <ul class="pagination">
+    """)
+
+@app.get("/panel/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/portal")
+
+@app.get("/panel/crear_usuario", response_class=HTMLResponse)
+async def crear_usuario_page(request: Request):
     if not request.session.get("admin"):
         return RedirectResponse(url="/panel/login")
     
@@ -387,32 +576,123 @@ async def admin_panel(request: Request):
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>Admin Panel</title>
+        <title>Crear Usuario</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     </head>
     <body>
-        <nav class="navbar navbar-dark bg-dark">
+        <nav class="navbar navbar-dark bg-dark mb-4">
             <div class="container-fluid">
-                <span class="navbar-brand mb-0 h1">GOB TLAX Admin</span>
-                <a href="/panel/logout" class="btn btn-outline-light">Logout</a>
+                <a href="/panel/admin" class="btn btn-outline-light">← Volver</a>
+                <span class="navbar-brand mb-0">Crear Nuevo Usuario</span>
             </div>
         </nav>
-        <div class="container mt-5">
-            <h2>Bienvenido al Panel Admin</h2>
-            <ul class="list-group mt-4">
-                <li class="list-group-item"><a href="/panel/folios">Ver Folios</a></li>
-                <li class="list-group-item"><a href="/panel/crear_usuario">Crear Usuario</a></li>
-            </ul>
+        <div class="container" style="max-width: 500px;">
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" action="/panel/crear_usuario">
+                        <div class="mb-3">
+                            <label class="form-label">Usuario</label>
+                            <input type="text" name="username" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Contraseña</label>
+                            <input type="password" name="password" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Folios Asignados</label>
+                            <input type="number" name="folios_asignados" class="form-control" value="10" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Crear Usuario</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </body>
     </html>
     """)
 
-@app.get("/panel/logout")
-async def logout(request: Request):
-    """Logout"""
-    request.session.clear()
-    return RedirectResponse(url="/portal")
+@app.post("/panel/crear_usuario", response_class=HTMLResponse)
+async def crear_usuario_post(request: Request, username: str = Form(...), password: str = Form(...), folios_asignados: int = Form(...)):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    try:
+        supabase_client.table("verificacion_tlaxcala").insert({
+            "username": username,
+            "password": password,
+            "folios_asignac": folios_asignados,
+            "folios_usados": 0
+        }).execute()
+        
+        return HTMLResponse(f"<h2>✅ Usuario '{username}' creado correctamente</h2><a href='/panel/admin'>Volver al panel</a>")
+    except Exception as e:
+        return HTMLResponse(f"<h2>❌ Error: {str(e)}</h2>")
+
+@app.get("/panel/validar/{folio}", response_class=HTMLResponse)
+async def validar_folio(folio: str, request: Request):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    try:
+        resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
+        if resultado.data:
+            datos = resultado.data[0]
+            supabase_client.table("folios_registrados").update({"estado_pago": "validado"}).eq("folio", folio).execute()
+            return HTMLResponse(f"<h2>✅ Folio {folio} validado correctamente</h2><a href='/panel/folios'>Ver folios</a>")
+    except Exception as e:
+        return HTMLResponse(f"<h2>❌ Error: {str(e)}</h2>")
+
+@app.get("/panel/pdf/{folio}")
+async def descargar_pdf(folio: str, request: Request):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    try:
+        resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
+        if resultado.data:
+            pdf_bytes = generar_pdf(folio, resultado.data[0])
+            return FileResponse(BytesIO(pdf_bytes), media_type="application/pdf", filename=f"{folio}.pdf")
+    except Exception as e:
+        logger.error(f"Error descargando PDF: {e}")
+    
+    return HTMLResponse("<h1>Error descargando PDF</h1>")
+
+@app.get("/panel/tablas", response_class=HTMLResponse)
+async def panel_tablas(request: Request):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login")
+    
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Editor de Tablas</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <nav class="navbar navbar-dark bg-dark mb-4">
+            <div class="container-fluid">
+                <a href="/panel/admin" class="btn btn-outline-light">← Volver</a>
+                <span class="navbar-brand mb-0">Editor de Tablas</span>
+            </div>
+        </nav>
+        <div class="container">
+            <div class="row">
+                <div class="col-md-3">
+                    <a href="/panel/tabla/folios_registrados" class="btn btn-primary w-100 mb-2">Folios Registrados</a>
+                </div>
+                <div class="col-md-3">
+                    <a href="/panel/tabla/verificacion_tlaxcala" class="btn btn-primary w-100 mb-2">Usuarios</a>
+                </div>
+                <div class="col-md-3">
+                    <a href="/panel/tabla/folio_watermark" class="btn btn-primary w-100 mb-2">Watermark</a>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """)
 
 # ============================================================================
 # TELEGRAM BOT
@@ -420,7 +700,6 @@ async def logout(request: Request):
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """Webhook para Telegram"""
     try:
         update = await request.json()
         await dp.feed_update(bot, types.Update(**update))
@@ -431,15 +710,16 @@ async def webhook(request: Request):
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    """Comando /start"""
     await message.answer(
         "¡Bienvenido a GOB TLAX Permisos!\n\n"
-        "Usa /tlaxcala para solicitar un permiso provisional"
+        "Opciones disponibles:\n"
+        "/tlaxcala - Solicitar permiso provisional\n"
+        "/folios - Ver tus folios activos\n"
+        "/ayuda - Información adicional"
     )
 
 @dp.message(Command("tlaxcala"))
 async def cmd_tlaxcala(message: types.Message, state: FSMContext):
-    """Inicia formulario"""
     await state.set_state(VehicleForm.marca)
     await message.answer("Ingrese la MARCA del vehículo:")
 
@@ -490,16 +770,38 @@ async def process_cve(message: types.Message, state: FSMContext):
     data = await state.get_data()
     data["cve_vehicular"] = message.text
     
-    # Generar folio
     folio = generar_folio()
     guardar_folio(folio, data, str(message.from_user.id))
     
     await message.answer(
-        f"✅ Folio generado: <b>{folio}</b>\n\n"
-        f"Consulta tu permiso en: {BASE_URL}/consulta/{folio}",
+        f"✅ <b>Folio generado: {folio}</b>\n\n"
+        f"Consulta tu permiso en:\n{BASE_URL}/consulta/{folio}\n\n"
+        f"Válido por 30 días.",
         parse_mode="HTML"
     )
     await state.clear()
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
+
+@app.get("/api/estadisticas")
+async def api_estadisticas():
+    return obtener_estadisticas()
+
+@app.get("/api/folios")
+async def api_folios(pagina: int = 1):
+    return obtener_folios_paginado(pagina)
+
+@app.get("/api/folio/{folio}")
+async def api_folio(folio: str):
+    try:
+        resultado = supabase_client.table("folios_registrados").select("*").eq("folio", folio).execute()
+        if resultado.data:
+            return resultado.data[0]
+        return {"error": "Folio no encontrado"}
+    except Exception as e:
+        return {"error": str(e)}
 
 # ============================================================================
 # HEALTH CHECK
@@ -507,7 +809,12 @@ async def process_cve(message: types.Message, state: FSMContext):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {
+        "status": "ok",
+        "version": "3.0",
+        "timestamp": datetime.now().isoformat(),
+        "sistema": ENTIDAD
+    }
 
 # ============================================================================
 # STARTUP
@@ -515,10 +822,9 @@ async def health():
 
 @app.on_event("startup")
 async def startup():
-    """Startup event"""
-    logger.info("🚀 Sistema iniciado")
-    # Aquí puedes configurar el webhook de Telegram si es necesario
-    # await bot.set_webhook_url(f"{BASE_URL}/webhook")
+    logger.info("🚀 GOB TLAX Sistema v3.0 iniciado")
+    logger.info(f"Base URL: {BASE_URL}")
+    logger.info(f"Entidad: {ENTIDAD}")
 
 if __name__ == "__main__":
     import uvicorn
