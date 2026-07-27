@@ -668,7 +668,7 @@ def head(titulo):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{titulo} — {BRAND_NOMBRE}</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{ROBOTO}{FA}<style>{CSS}</style></head><body>"""
+{ROBOTO}{FA}<style>{CSS}</style></head><body style="margin:0;background:#f4f4f4">"""
 
 def _sidebar_links():
     return """
