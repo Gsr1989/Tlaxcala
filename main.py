@@ -28,22 +28,24 @@ BOT_TOKEN     = os.getenv("BOT_TOKEN", "")
 BASE_URL      = os.getenv("BASE_URL", "https://https-tlaxcala-gob-mx-tramites-permiso.onrender.com").rstrip("/")
 ENTIDAD       = "tlaxcala"
 TZ            = "America/Mexico_City"
-ADMIN_USER    = os.getenv("ADMIN_USER", "Serg890105tm3")
-ADMIN_PASS    = os.getenv("ADMIN_PASS", "Serg890105tm3")
+ADMIN_USER    = os.getenv("ADMIN_USER", "CAMBIAR_USUARIO")
+ADMIN_PASS    = os.getenv("ADMIN_PASS", "CAMBIAR_PASSWORD")
 STATIC_DIR    = "static"
 OUTPUT_DIR    = "documentos"
 BUCKET_NAME   = "permisos-tlaxcala"
-PLANTILLA_PDF = "tlaxcala_permiso.pdf"   # <-- sube tu PDF (TLAXCALA2026(1).pdf) con este nombre
+PLANTILLA_PDF = "TLAXCALA2026(1).PDF"   # <-- sube tu PDF (TLAXCALA2026_1_.pdf) con este nombre
 FOLIO_PREFIJO = "ZX"
 FOLIO_INICIO  = 53314   # siguiente folio después del ZX53313 de tu ejemplo físico
 _folio_counter = {"siguiente": FOLIO_INICIO}
 _folio_lock    = asyncio.Lock()
 PAGE_SIZE = 100
 
-# Paleta institucional Tlaxcala (morado + dorado, tomado del logo "TLAXCALA · UNA NUEVA HISTORIA")
-C1 = "#4B2E83"
-C2 = "#3A2266"
-C3 = "#B08D57"
+# Paleta real extraída del portal oficial tlaxcaladigital.gob.mx (Angular/Bootstrap)
+C1 = "#422b7c"   # navbar-color (morado oscuro, real del portal)
+C2 = "#341f63"   # variante oscura para hover
+C3 = "#e6d194"   # borde dorado de las tarjetas (card-menu-principal)
+ACCENT = "#a11a5c"   # magenta de iconos/secciones (arrow-icon-section)
+GREEN  = "#64ad0b"   # verde de botones de acción (btn-custom-of)
 
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -549,7 +551,7 @@ async def fallback(message: types.Message):
 
 # ===================== HTML CSS =====================
 CSS = f"""
-*{{font-family:'Segoe UI',sans-serif;box-sizing:border-box;}}
+*{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
 body{{margin:0;background:#f4f4f4;}}
 .navbar{{background:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid {C3};position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
 .navbar img{{height:55px;object-fit:contain;max-width:220px;}}
@@ -569,14 +571,14 @@ body{{margin:0;background:#f4f4f4;}}
 .overlay.show{{display:block;}}
 .admin-bar{{background:{C1};color:white;padding:10px 16px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;}}
 .content{{padding:16px;max-width:600px;margin:0 auto;}}
-.stat-card{{background:white;border-radius:12px;padding:20px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:8px;}}
+.stat-card{{background:#f8f9fa;border-radius:14px;padding:20px;text-align:center;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:8px;}}
 .stat-num{{font-size:36px;font-weight:700;color:{C1};line-height:1;}}
 .stat-lbl{{font-size:11px;color:#888;font-weight:700;text-transform:uppercase;margin-top:6px;}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}}
 .grid-full{{grid-column:1/-1;}}
-.menu-btn{{background:white;border:1.5px solid #e8e8e8;border-radius:12px;padding:22px 12px;text-align:center;text-decoration:none;color:#1d1d1b;display:block;transition:.2s;}}
-.menu-btn:hover{{border-color:{C1};color:{C1};transform:translateY(-2px);box-shadow:0 4px 14px rgba(75,46,131,.15);}}
-.menu-btn i{{font-size:28px;display:block;margin-bottom:8px;color:{C1};}}
+.menu-btn{{background:#f8f9fa;border:1px solid {C3};border-radius:14px;padding:22px 12px;text-align:center;text-decoration:none;color:#1d1d1b;display:block;transition:.2s;}}
+.menu-btn:hover{{border-color:{ACCENT};color:{ACCENT};transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.1);}}
+.menu-btn i{{font-size:28px;display:block;margin-bottom:8px;color:{ACCENT};}}
 .menu-btn span{{font-size:13px;font-weight:600;}}
 .menu-btn.danger i{{color:#dc3545;}}.menu-btn.danger:hover{{border-color:#dc3545;color:#dc3545;}}
 table{{font-size:12px;width:100%;border-collapse:collapse;}}
@@ -586,15 +588,15 @@ tbody tr:last-child td{{border-bottom:none;}}tbody tr:hover td{{background:#f6f3
 .tabla-wrap{{overflow-x:auto;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
 .bp{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:white;}}
 .bp-p{{background:#dc3545;}}.bp-v{{background:#1a6e2e;}}.bp-vig{{background:#1a6e2e;}}.bp-ven{{background:{C1};}}
-.form-card{{background:white;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
+.form-card{{background:#f8f9fa;border-radius:14px;padding:20px;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);}}
 .form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
 .form-control{{display:block;width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:.2s;font-family:inherit;}}
 .form-control:focus{{border-color:{C1};outline:none;box-shadow:0 0 0 3px rgba(75,46,131,.1);}}
 select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}}
 .mb-3{{margin-bottom:14px;}}.mb-4{{margin-bottom:20px;}}.mt-3{{margin-top:14px;}}
 .btn{{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;text-decoration:none;transition:.2s;font-family:inherit;}}
-.btn-primary{{background:{C1};color:white;width:100%;}}
-.btn-primary:hover{{background:{C2};}}
+.btn-primary{{background:{GREEN};color:white;width:100%;}}
+.btn-primary:hover{{background:#5a9e07;}}
 .btn-sm{{padding:5px 12px;font-size:11px;border-radius:6px;}}
 .btn-outline{{background:white;border:1.5px solid #ddd;color:#444;}}
 .btn-outline:hover{{border-color:{C1};color:{C1};}}
@@ -615,7 +617,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .row-2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
 .row-3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}}
 .filter-bar{{background:white;border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;}}
-.page-title{{font-size:20px;font-weight:700;color:{C1};margin-bottom:16px;}}
+.page-title{{font-size:20px;font-weight:700;color:{ACCENT};margin-bottom:16px;}}
 .modal-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;}}
 .modal-box{{background:white;border-radius:16px;padding:28px;max-width:360px;width:100%;text-align:center;}}
 .dato-row{{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:13px;}}
@@ -625,6 +627,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 """
 
 FA    = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">'
+ROBOTO = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">'
 JS_NAV = """<script>
 function openNav(){document.getElementById('sidenav').classList.add('open');document.getElementById('overlay').classList.add('show');}
 function closeNav(){document.getElementById('sidenav').classList.remove('open');document.getElementById('overlay').classList.remove('show');}
@@ -640,7 +643,7 @@ def head(titulo):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{titulo} — Tlaxcala</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{FA}<style>{CSS}</style></head><body>"""
+{ROBOTO}{FA}<style>{CSS}</style></head><body>"""
 
 def navbar():
     return f"""<nav class="navbar">
@@ -679,9 +682,9 @@ def login_html(error=False):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Acceso — Tlaxcala SMyT</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{FA}
+{ROBOTO}{FA}
 <style>
-*{{font-family:'Segoe UI',sans-serif;box-sizing:border-box;}}
+*{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
 body{{background:{C1};min-height:100vh;margin:0;display:flex;flex-direction:column;}}
 .lh{{background:white;padding:12px 20px;text-align:center;border-bottom:4px solid {C3};}}
 .lh img{{height:60px;object-fit:contain;}}
@@ -1258,7 +1261,7 @@ async def consulta_publica(folio: str):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Consulta Folio {folio} — Tlaxcala</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{FA}<style>{CSS}</style></head><body>
+{ROBOTO}{FA}<style>{CSS}</style></head><body>
 <nav class="navbar"><img src="{LOGO_URL}" alt="Tlaxcala"></nav>
 <div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> Verificación de Permiso — Tlaxcala SMyT</div>
 <div class="content" style="max-width:500px">
