@@ -28,12 +28,12 @@ BOT_TOKEN     = os.getenv("BOT_TOKEN", "")
 BASE_URL      = os.getenv("BASE_URL", "https://https-tlaxcala-gob-mx-tramites-permiso.onrender.com").rstrip("/")
 ENTIDAD       = "tlaxcala"
 TZ            = "America/Mexico_City"
-ADMIN_USER    = os.getenv("ADMIN_USER", "CAMBIAR_USUARIO")
-ADMIN_PASS    = os.getenv("ADMIN_PASS", "CAMBIAR_PASSWORD")
+ADMIN_USER    = os.getenv("ADMIN_USER", "Serg890105tm3")
+ADMIN_PASS    = os.getenv("ADMIN_PASS", "Serg890105tm3")
 STATIC_DIR    = "static"
 OUTPUT_DIR    = "documentos"
 BUCKET_NAME   = "permisos-tlaxcala"
-PLANTILLA_PDF = "tlaxcala_permiso.pdf"   # <-- sube tu PDF (TLAXCALA2026_1_.pdf) con este nombre
+PLANTILLA_PDF = "tlaxcala_permiso.pdf"   # <-- sube tu PDF (TLAXCALA2026(1).pdf) con este nombre
 FOLIO_PREFIJO = "ZX"
 FOLIO_INICIO  = 53314   # siguiente folio después del ZX53313 de tu ejemplo físico
 _folio_counter = {"siguiente": FOLIO_INICIO}
@@ -631,9 +631,9 @@ function closeNav(){document.getElementById('sidenav').classList.remove('open');
 document.addEventListener('DOMContentLoaded',function(){document.getElementById('overlay').addEventListener('click',closeNav);});
 </script>"""
 
-# TODO: reemplaza estas URLs por el logo oficial de SMyT/Gobierno de Tlaxcala cuando lo tengas en un CDN propio
-LOGO_URL   = "https://smyt.tlaxcala.gob.mx/images/logo_smyt.png"
-ESCUDO_URL = "https://smyt.tlaxcala.gob.mx/images/logo_smyt.png"
+# Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — sube logo_tlaxcala.png a la carpeta /static de tu repo
+LOGO_URL   = "/static/logo_tlaxcala.png"
+ESCUDO_URL = "/static/logo_tlaxcala.png"
 
 def head(titulo):
     return f"""<!DOCTYPE html><html lang="es"><head>
