@@ -554,22 +554,30 @@ async def fallback(message: types.Message):
 CSS = f"""
 *{{font-family:'Roboto',sans-serif;box-sizing:border-box;}}
 body{{margin:0;background:#f4f4f4;}}
-.navbar{{background:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid {C3};position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
-.navbar img{{height:55px;object-fit:contain;max-width:220px;}}
-.hamburger{{display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:4px;}}
-.hamburger span{{display:block;width:26px;height:3px;background:{C1};border-radius:2px;}}
-.sidenav{{position:fixed;top:0;right:-280px;width:280px;height:100%;background:white;z-index:200;transition:.3s;box-shadow:-4px 0 20px rgba(0,0,0,.15);overflow-y:auto;}}
-.sidenav.open{{right:0;}}
-.sidenav-header{{background:{C1};padding:20px 16px;color:white;}}
-.sidenav-header img{{height:45px;filter:brightness(10);margin-bottom:8px;display:block;}}
-.sidenav-header p{{margin:0;font-size:13px;opacity:.85;}}
-.sidenav ul{{list-style:none;margin:0;padding:8px 0;}}
-.sidenav ul li a{{display:flex;align-items:center;gap:12px;padding:14px 20px;color:#333;text-decoration:none;font-size:14px;font-weight:600;transition:.15s;border-bottom:1px solid #f0f0f0;}}
-.sidenav ul li a:hover{{background:#f6f3fb;color:{C1};}}
-.sidenav ul li a i{{color:{C1};width:18px;text-align:center;}}
-.sidenav ul li a.danger{{color:#c00;}}.sidenav ul li a.danger i{{color:#c00;}}
-.overlay{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;display:none;}}
+.layout-container{{min-height:100vh;}}
+.sidebar{{display:none;}}
+@media (min-width:992px){{
+  .sidebar{{display:block;width:300px;height:100vh;position:fixed;top:0;left:0;z-index:1020;background:white;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);}}
+  .main-content-wrapper{{margin-left:300px;}}
+}}
+.sidebar-header{{background:{ACCENT};padding:24px 16px;color:white;text-align:center;}}
+.sidebar-header img{{height:70px;object-fit:contain;filter:brightness(10);margin-bottom:10px;}}
+.sidebar-header p{{margin:6px 0 0;font-size:14px;opacity:.95;font-weight:600;}}
+.sidebar ul{{list-style:none;margin:0;padding:10px 0;}}
+.sidebar ul li a{{display:flex;align-items:center;gap:12px;padding:14px 20px;color:#000;text-decoration:none;font-size:14px;font-weight:600;transition:.15s;border-bottom:1px solid #f0f0f0;}}
+.sidebar ul li a:hover{{background:rgba(161,26,92,.08);}}
+.sidebar ul li a i{{color:{ACCENT};width:18px;text-align:center;}}
+.sidebar ul li a.danger{{color:#c00;}}.sidebar ul li a.danger i{{color:#c00;}}
+.topbar{{background:{C1};color:white;padding:12px 16px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15);}}
+.topbar img{{height:38px;object-fit:contain;}}
+.hamburger{{display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:4px;background:none;border:none;}}
+.hamburger span{{display:block;width:24px;height:3px;background:white;border-radius:2px;}}
+@media (min-width:992px){{ .hamburger{{display:none;}} }}
+.offcanvas-sb{{position:fixed;top:0;left:-300px;width:300px;height:100%;background:white;z-index:1030;transition:.3s;overflow-y:auto;box-shadow:4px 0 20px rgba(0,0,0,.2);}}
+.offcanvas-sb.open{{left:0;}}
+.overlay{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1025;display:none;}}
 .overlay.show{{display:block;}}
+@media (min-width:992px){{ .offcanvas-sb,.overlay{{display:none!important;}} }}
 .admin-bar{{max-width:680px;margin:16px auto 0;padding:0 24px;color:{ACCENT};font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px;}}
 .content{{padding:24px;max-width:680px;margin:20px auto;background:white;border:1px solid {C3};border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.08);}}
 .stat-card{{background:#f8f9fa;border-radius:14px;padding:20px;text-align:center;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);margin-bottom:8px;}}
@@ -630,8 +638,8 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 FA    = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">'
 ROBOTO = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">'
 JS_NAV = """<script>
-function openNav(){document.getElementById('sidenav').classList.add('open');document.getElementById('overlay').classList.add('show');}
-function closeNav(){document.getElementById('sidenav').classList.remove('open');document.getElementById('overlay').classList.remove('show');}
+function openNav(){document.getElementById('offsb').classList.add('open');document.getElementById('overlay').classList.add('show');}
+function closeNav(){document.getElementById('offsb').classList.remove('open');document.getElementById('overlay').classList.remove('show');}
 document.addEventListener('DOMContentLoaded',function(){document.getElementById('overlay').addEventListener('click',closeNav);});
 </script>"""
 
@@ -646,36 +654,48 @@ def head(titulo):
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
 {ROBOTO}{FA}<style>{CSS}</style></head><body>"""
 
-def navbar():
-    return f"""<nav class="navbar">
-  <img src="{LOGO_URL}" alt="Tlaxcala">
-  <div class="hamburger" onclick="openNav()"><span></span><span></span><span></span></div>
-</nav>
-<div class="overlay" id="overlay"></div>
-<div class="sidenav" id="sidenav">
-  <div class="sidenav-header">
-    <img src="{LOGO_URL}" alt="Tlaxcala">
-    <p>Secretaría de Movilidad y Transporte</p>
-  </div>
-  <ul>
+def _sidebar_links():
+    return """
     <li><a href="/panel/admin"><i class="fa-solid fa-house"></i>Inicio</a></li>
     <li><a href="/panel/folios"><i class="fa-solid fa-list-check"></i>Ver Folios</a></li>
     <li><a href="/panel/registro_admin"><i class="fa-solid fa-file-circle-plus"></i>Registrar Permiso</a></li>
     <li><a href="/panel/crear_usuario"><i class="fa-solid fa-user-plus"></i>Crear Usuario</a></li>
     <li><a href="/panel/tablas"><i class="fa-solid fa-database"></i>Tablas BD</a></li>
     <li><a href="/consulta_folio"><i class="fa-solid fa-magnifying-glass"></i>Consultar Folio</a></li>
-    <li><a href="/panel/logout" class="danger"><i class="fa-solid fa-right-from-bracket"></i>Cerrar Sesión</a></li>
-  </ul>
+    <li><a href="/panel/logout" class="danger"><i class="fa-solid fa-right-from-bracket"></i>Cerrar Sesión</a></li>"""
+
+def navbar():
+    links = _sidebar_links()
+    return f"""<nav class="sidebar">
+  <div class="sidebar-header">
+    <img src="{LOGO_URL}" alt="Tlaxcala">
+    <p>Secretaría de Movilidad<br>y Transporte</p>
+  </div>
+  <ul>{links}</ul>
+</nav>
+<div class="overlay" id="overlay"></div>
+<nav class="offcanvas-sb" id="offsb">
+  <div class="sidebar-header">
+    <img src="{LOGO_URL}" alt="Tlaxcala">
+    <p>Secretaría de Movilidad<br>y Transporte</p>
+  </div>
+  <ul>{links}</ul>
+</nav>
+<div class="topbar">
+  <button class="hamburger" onclick="openNav()"><span></span><span></span><span></span></button>
+  <img src="{LOGO_URL}" alt="Tlaxcala">
 </div>"""
 
 def admin_bar(seccion):
     return f'<div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> {seccion}</div>'
 
 def footer(scripts=""):
-    return f"""{scripts}{JS_NAV}</body></html>"""
+    return f"""{scripts}{JS_NAV}</div></body></html>"""
 
 def page(titulo, seccion, contenido, scripts=""):
-    return head(titulo) + navbar() + admin_bar(seccion) + f'<div class="content">{contenido}</div>' + footer(scripts)
+    return (head(titulo) + '<div class="layout-container">' + navbar()
+            + '<div class="main-content-wrapper">' + admin_bar(seccion)
+            + f'<div class="content">{contenido}</div>' + footer(scripts))
 
 def login_html(error=False):
     err = '<div class="alert alert-err"><i class="fa-solid fa-triangle-exclamation"></i> Usuario o contraseña incorrectos</div>' if error else ""
@@ -1263,7 +1283,7 @@ async def consulta_publica(folio: str):
 <title>Consulta Folio {folio} — Tlaxcala</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
 {ROBOTO}{FA}<style>{CSS}</style></head><body>
-<nav class="navbar"><img src="{LOGO_URL}" alt="Tlaxcala"></nav>
+<nav class="topbar" style="justify-content:center"><img src="{LOGO_URL}" alt="Tlaxcala"></nav>
 <div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> Verificación de Permiso — Tlaxcala SMyT</div>
 <div class="content" style="max-width:500px">
   {badge}
