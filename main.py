@@ -769,12 +769,11 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script>"""
 
-# Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — sube logo_tlaxcala.png a /static
-LOGO_URL   = "/static/logo_tlaxcala.png"
-ESCUDO_URL = "/static/logo_tlaxcala.png"
-# Logo doble "TLAXCALA · SECRETARÍA DE FINANZAS" que usa el portal oficial en el header de cada trámite
-# (tlaxcala-financiera.png). Si aún no lo subes, el onerror lo oculta sin romper el layout.
-LOGO_SECRETARIA_URL = "/static/tlaxcala_financiera.png"
+# Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — ya subido como logo_brand.png en /static
+LOGO_URL   = "/static/logo_brand.png"
+ESCUDO_URL = "/static/logo_brand.png"
+# Logo doble "TLAXCALA · SECRETARÍA DE FINANZAS" — nombres EXACTOS tal cual subidos al repo (con guion, no guion bajo)
+LOGO_SECRETARIA_URL = "/static/tlaxcala-financiera.png"
 
 def header_tramite(titulo_html: str, subtitulo: str = "OFICINA VIRTUAL DE TRÁMITES Y SERVICIOS", icono: str = "fa-solid fa-car") -> str:
     """Header clonado de la ficha oficial: título + línea + subtítulo a la izquierda, logo doble a la derecha."""
