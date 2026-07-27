@@ -308,7 +308,7 @@ def generar_pdf(datos: dict) -> str:
             pg  = doc[0]
 
             # Folio gigante
-            pg.insert_text((430, 280), folio, fontsize=80, fontname=FB, color=(0, 0, 0))
+            pg.insert_text((405, 280), folio, fontsize=80, fontname=FB, color=(0, 0, 0))
 
             # VIGENCIA
             pg.insert_text((52, 205), datos["fecha_exp"], fontsize=S, fontname=F, color=(0, 0, 0))
@@ -320,12 +320,12 @@ def generar_pdf(datos: dict) -> str:
             # VEHICULO
             pg.insert_text((53, 369), serie, fontsize=8, fontname=F, color=(0, 0, 0))
             pg.insert_text((53, 403), serie, fontsize=S, fontname=F, color=(0, 0, 0))
-            pg.insert_text((172, 403), modelo, fontsize=S, fontname=F, color=(0, 0, 0))
-            pg.insert_text((218, 403), color, fontsize=S, fontname=F, color=(0, 0, 0))
+            pg.insert_text((185, 403), modelo, fontsize=S, fontname=F, color=(0, 0, 0))
+            pg.insert_text((238, 403), color, fontsize=S, fontname=F, color=(0, 0, 0))
             pg.insert_text((53, 437), motor, fontsize=S, fontname=F, color=(0, 0, 0))
             pg.insert_text((168, 437), marca, fontsize=8, fontname=F, color=(0, 0, 0))
             pg.insert_text((168, 449), linea, fontsize=8, fontname=F, color=(0, 0, 0))
-            pg.insert_text((234, 437), cve, fontsize=7, fontname=F, color=(0, 0, 0))
+            pg.insert_text((264, 437), cve, fontsize=7, fontname=F, color=(0, 0, 0))
 
             # QR izquierdo
             img_url = _generar_qr_url(folio)
