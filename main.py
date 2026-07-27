@@ -776,7 +776,8 @@ ESCUDO_URL = "/static/logo_brand.png"
 LOGO_SECRETARIA_URL = "/static/tlaxcala-financiera.png"
 
 def header_tramite(titulo_html: str, subtitulo: str = "OFICINA VIRTUAL DE TRÁMITES Y SERVICIOS", icono: str = "fa-solid fa-car") -> str:
-    """Header clonado de la ficha oficial: título + línea + subtítulo a la izquierda, logo doble a la derecha."""
+    """Header clonado de la ficha oficial: título + línea + subtítulo a la izquierda, logo a la derecha.
+    logo_brand.png ya incluye el lockup completo Tlaxcala + Secretaría de Finanzas, así que se muestra una sola vez."""
     return f"""<div class="tramite-header">
       <div class="tramite-header-text">
         <h4><i class="{icono} arrow-icon-section"></i> {titulo_html}</h4>
@@ -784,8 +785,7 @@ def header_tramite(titulo_html: str, subtitulo: str = "OFICINA VIRTUAL DE TRÁMI
         <h6>{subtitulo}</h6>
       </div>
       <div class="tramite-header-logos">
-        <img src="{LOGO_URL}" alt="Tlaxcala">
-        <img src="{LOGO_SECRETARIA_URL}" alt="Secretaría de Finanzas" onerror="this.style.display='none'">
+        <img src="{LOGO_URL}" alt="Tlaxcala — Secretaría de Finanzas">
       </div>
     </div>"""
 
@@ -1503,10 +1503,9 @@ async def consulta_publica(folio: str):
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Consulta Folio {folio} — Tlaxcala</title>
 <link rel="icon" href="{ESCUDO_URL}" sizes="32x32"/>
-{ROBOTO}{FA}{BI}<style>{CSS}</style></head><body>
-<nav class="topbar" style="justify-content:center"><img src="{LOGO_URL}" alt="Tlaxcala"></nav>
-<div class="admin-bar"><i class="fa-solid fa-shield-halved"></i> Verificación de Permiso — Tlaxcala SMyT</div>
-<div class="content" style="max-width:500px">
+{ROBOTO}{FA}{BI}<style>{CSS}</style></head><body style="background:#f4f4f4;">
+<div class="content" style="max-width:600px">
+  {header_tramite("VERIFICACIÓN DE PERMISO", subtitulo="TLAXCALA SMYT", icono="fa-solid fa-shield-halved")}
   {badge}
   {datos_html}
   <a href="https://smyt.tlaxcala.gob.mx/" class="btn btn-primary mt-3">
