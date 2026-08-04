@@ -408,6 +408,62 @@ async def _generar_folio_async():
 def generar_folio():
     return _generar_folio_sync()
 
+# ===================== ANTI DOBLE-CLICK (protección del contador) =====================
+#
+# Problema: el usuario pica "Registrar Folio" varias veces porque tarda, y cada
+# click quemaba un folio de su cupo. Aquí van TRES candados:
+#
+#   1. Un asyncio.Lock POR USUARIO: dos peticiones del mismo usuario nunca corren
+#      al mismo tiempo, la segunda espera a que termine la primera.
+#   2. Deduplicación por huella (usuario + serie + motor + nombre): si en los
+#      últimos DEDUPE_SEGUNDOS ya se generó un permiso idéntico, se devuelve ESE
+#      folio en vez de crear otro. No se cobra folio de más.
+#   3. El contador se reserva ANTES de generar el PDF y se devuelve si algo falla.
+#
+# Requiere -w 1 en el start command de Render (un solo worker).
+# =====================================================================================
+
+_locks_usuario   = {}     # username -> asyncio.Lock
+_registros_recientes = {} # huella -> {"folio":..., "pdf_url":..., "ts": datetime}
+DEDUPE_SEGUNDOS  = 180
+
+
+def _lock_de_usuario(username: str) -> asyncio.Lock:
+    if username not in _locks_usuario:
+        _locks_usuario[username] = asyncio.Lock()
+    return _locks_usuario[username]
+
+
+def _huella(username: str, serie: str, motor: str, nombre: str) -> str:
+    return "|".join([
+        (username or "").strip().upper(),
+        (serie or "").strip().upper(),
+        (motor or "").strip().upper(),
+        (nombre or "").strip().upper(),
+    ])
+
+
+def _buscar_reciente(huella: str):
+    """¿Ya generamos esto hace poquito? Devuelve el registro previo o None."""
+    reg = _registros_recientes.get(huella)
+    if not reg:
+        return None
+    if (datetime.now() - reg["ts"]).total_seconds() > DEDUPE_SEGUNDOS:
+        _registros_recientes.pop(huella, None)
+        return None
+    return reg
+
+
+def _guardar_reciente(huella: str, folio: str, pdf_url: str):
+    _registros_recientes[huella] = {"folio": folio, "pdf_url": pdf_url, "ts": datetime.now()}
+    # Limpieza de entradas viejas para que el dict no crezca sin límite
+    if len(_registros_recientes) > 500:
+        ahora = datetime.now()
+        for k in [k for k, v in _registros_recientes.items()
+                  if (ahora - v["ts"]).total_seconds() > DEDUPE_SEGUNDOS]:
+            _registros_recientes.pop(k, None)
+
+
 # ===================== STORAGE =====================
 
 def subir_pdf_a_storage(ruta_local: str, folio: str) -> str:
@@ -1106,7 +1162,7 @@ async def lifespan(app: FastAPI):
     webhook_url = f"{BASE_URL}/webhook"
     await bot.set_webhook(webhook_url, allowed_updates=["message", "callback_query"])
     _keep_task = asyncio.create_task(keep_alive())
-    print(f"[SISTEMA] Tlaxcala v1.1 listo — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
+    print(f"[SISTEMA] Tlaxcala v1.2 listo — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
     yield
     if _keep_task:
         _keep_task.cancel()
@@ -1114,7 +1170,7 @@ async def lifespan(app: FastAPI):
             await _keep_task
     await bot.session.close()
 
-app = FastAPI(lifespan=lifespan, title="Tránsito Tlaxcala", version="1.1")
+app = FastAPI(lifespan=lifespan, title="Tránsito Tlaxcala", version="1.2")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "tlaxcala_clave_super_segura_cambiar"))
 try:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -1363,8 +1419,7 @@ async def admin_folios(request: Request):
             bt = '<span class="bp bp-td">⏱ OFF</span>'
             btn_timer = ""
         bval = f'<form method="POST" action="/panel/validar/{folio_id}" style="display:inline"><button class="btn btn-success btn-sm" onclick="return confirm(\'¿Validar?\')">✅</button></form> ' if pago == "PENDIENTE_PAGO" else ""
-        pdf  = f.get("pdf_url", "")
-        bpdf = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📄</a> ' if pdf else ""
+        bpdf = f'<a href="/descargar/{folio_id}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📄</a> '
         filas += f"""<tr>
           <td><strong style="color:{C1}">{folio_id}</strong><br><small style="color:#999">{f.get("creado_por","")}</small></td>
           <td>{(f.get("nombre","") or "")[:18]}</td>
@@ -1424,6 +1479,72 @@ async def validar_pago(request: Request, folio: str):
                 f"Tu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
     return RedirectResponse(url=f"/panel/folios?msg={quote('Folio ' + r['folio'] + ' validado ✅ (timer detenido en Telegram también)')}", status_code=303)
 
+@app.get("/descargar/{folio}")
+async def descargar_pdf_publico(folio: str):
+    """
+    Descarga con respaldo en 3 niveles. Se usa en la pantalla de éxito para que
+    el PDF SIEMPRE se pueda bajar aunque la subida a Supabase Storage haya fallado:
+      1. pdf_url guardado en la BD
+      2. archivo local en documentos/
+      3. regenerar el PDF al vuelo desde los datos del folio
+    """
+    folio = folio.strip().upper()
+    from fastapi.responses import FileResponse
+
+    # 1) URL pública de Storage
+    try:
+        res = supabase.table("folios_registrados").select("*").eq("folio", folio).limit(1).execute()
+        fila = res.data[0] if res.data else None
+    except Exception as e:
+        print(f"[DESCARGA] Error consultando {folio}: {e}")
+        fila = None
+
+    if fila and fila.get("pdf_url"):
+        return RedirectResponse(url=fila["pdf_url"])
+
+    # 2) Archivo local
+    ruta = os.path.join(OUTPUT_DIR, f"{folio}.pdf")
+    if os.path.exists(ruta):
+        return FileResponse(ruta, media_type="application/pdf",
+                            filename=f"{folio}_tlaxcala.pdf")
+
+    # 3) Regenerar desde la BD
+    if fila:
+        try:
+            fe_txt = str(fila.get("fecha_expedicion", ""))[:10]
+            fv_txt = str(fila.get("fecha_vencimiento", ""))[:10]
+            tz = ZoneInfo(TZ)
+            fe_dt = datetime.fromisoformat(fe_txt).replace(tzinfo=tz) if fe_txt else datetime.now(tz)
+            fv_dt = datetime.fromisoformat(fv_txt).replace(tzinfo=tz) if fv_txt else fe_dt + timedelta(days=30)
+            datos = {
+                "folio": folio,
+                "marca": fila.get("marca", ""), "linea": fila.get("linea", ""),
+                "anio": fila.get("anio", ""), "serie": fila.get("numero_serie", ""),
+                "motor": fila.get("numero_motor", ""), "color": fila.get("color", ""),
+                "nombre": fila.get("nombre", ""), "cve_vehicular": fila.get("cve_vehicular", ""),
+                "fecha_exp": fe_dt.strftime("%d/%m/%Y"),
+                "fecha_ven": fv_dt.strftime("%d/%m/%Y"),
+                "fecha_exp_dt": fe_dt,
+            }
+            ruta_nueva = await asyncio.to_thread(generar_pdf, datos)
+            # Intentar subirlo de nuevo para las próximas descargas
+            url = await asyncio.to_thread(subir_pdf_a_storage, ruta_nueva, folio)
+            if url:
+                with suppress(Exception):
+                    await asyncio.to_thread(lambda: supabase.table("folios_registrados")
+                        .update({"pdf_url": url}).eq("folio", folio).execute())
+            print(f"[DESCARGA] {folio} regenerado al vuelo")
+            return FileResponse(ruta_nueva, media_type="application/pdf",
+                                filename=f"{folio}_tlaxcala.pdf")
+        except Exception as e:
+            print(f"[DESCARGA] No se pudo regenerar {folio}: {e}")
+
+    return HTMLResponse(
+        f"<p style='font-family:sans-serif;padding:20px'>No se encontró el PDF del folio "
+        f"<strong>{folio}</strong>.</p><p><a href='/consulta/{folio}'>Ver datos del folio</a></p>",
+        status_code=404)
+
+
 @app.get("/panel/pdf/{folio}")
 async def descargar_pdf_panel(folio: str, request: Request):
     if not request.session.get("admin"):
@@ -1474,10 +1595,43 @@ async def registro_admin_get(request: Request):
         <div class="mb-3"><label class="form-label">Fecha expedición</label><input type="date" name="fecha_expedicion" class="form-control" value="{hoy}"></div>
         <div class="mb-3"><label class="form-label">Vencimiento <small style="color:#999">(vacío=+30d)</small></label><input type="date" name="fecha_vencimiento" class="form-control"></div>
       </div>
-      <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-file-circle-plus"></i> Generar Permiso</button>
+      <button type="submit" id="btnAdmin" class="btn btn-primary mt-3"><i class="fa-solid fa-file-circle-plus"></i> Generar Permiso</button>
     </form>
     </div>"""
-    return HTMLResponse(page("Registrar Permiso", "Registrar Permiso — Tlaxcala", contenido))
+    scripts = """<script>
+    (function(){
+      var form = document.querySelector('form[action="/panel/registro_admin"]');
+      if(!form) return;
+      var enviando = false;
+      form.addEventListener('submit', function(e){
+        if(enviando){ e.preventDefault(); return false; }
+        enviando = true;
+        var btn = document.getElementById('btnAdmin');
+        if(btn){
+          btn.disabled = true;
+          btn.style.opacity = '.6';
+          btn.style.cursor = 'not-allowed';
+          btn.innerHTML = '⏳ Generando permiso, espera...';
+        }
+        var ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.92);z-index:99999;'
+          + 'display:flex;flex-direction:column;align-items:center;justify-content:center;'
+          + 'font-family:Roboto,sans-serif;text-align:center;padding:24px';
+        ov.innerHTML =
+          '<div style="width:56px;height:56px;border:5px solid #e6d194;border-top-color:#422b7c;'
+          + 'border-radius:50%;animation:spinGen .9s linear infinite;margin-bottom:22px"></div>'
+          + '<div style="font-size:19px;font-weight:700;color:#422b7c;margin-bottom:8px">'
+          + 'Generando permiso...</div>'
+          + '<div style="font-size:14px;color:#666">No cierres ni recargues esta página.</div>'
+          + '<style>@keyframes spinGen{to{transform:rotate(360deg)}}</style>';
+        document.body.appendChild(ov);
+      });
+      window.addEventListener('pageshow', function(ev){
+        if(ev.persisted){ window.location.reload(); }
+      });
+    })();
+    </script>"""
+    return HTMLResponse(page("Registrar Permiso", "Registrar Permiso — Tlaxcala", contenido, scripts))
 
 @app.post("/panel/registro_admin")
 async def registro_admin_post(request: Request,
@@ -1504,8 +1658,9 @@ async def registro_admin_post(request: Request,
             "fecha_expedicion": fe.isoformat(), "fecha_vencimiento": fv.isoformat(), "entidad": ENTIDAD,
             "estado": "ACTIVO", "estado_pago": "VALIDADO", "timer_activo": False,
             "creado_por": request.session.get("username", "admin")}).execute()
-        pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
-        return RedirectResponse(url=f"/panel/folios?msg={quote(f'Permiso {fg} generado ✅')}&pdf={quote(pdf_url)}", status_code=303)
+        await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
+        # Siempre /descargar/: tiene respaldo local y regeneración
+        return RedirectResponse(url=f"/panel/folios?msg={quote(f'Permiso {fg} generado ✅')}&pdf={quote(f'/descargar/{fg}')}", status_code=303)
     except Exception as e:
         print(f"[REGISTRO ADMIN] Error: {e}")
         return RedirectResponse(url=f"/panel/registro_admin?error={quote(str(e))}", status_code=303)
@@ -1602,14 +1757,109 @@ async def registro_usuario_get(request: Request):
       <a href="/consulta_folio" class="btn btn-outline btn-sm">🔍 Consultar</a>
       <a href="/panel/logout" class="btn btn-danger btn-sm">🚪 Salir</a>
     </div>"""
+    # Bloqueo total mientras genera: el botón NO se reactiva y una capa encima
+    # impide cualquier otro click. Así nadie quema folios por picarle de más.
     scripts = """<script>
-    document.querySelector('form[action="/registro_usuario"]')&&document.querySelector('form[action="/registro_usuario"]').addEventListener('submit',function(){
-      const btn=document.getElementById('btnReg');
-      if(btn){btn.disabled=true;btn.textContent='⏳ Generando...';}
-      setTimeout(()=>{if(btn){btn.disabled=false;btn.textContent='Registrar Folio';}},12000);
-    });
+    (function(){
+      var form = document.querySelector('form[action="/registro_usuario"]');
+      if(!form) return;
+      var enviando = false;
+
+      form.addEventListener('submit', function(e){
+        if(enviando){ e.preventDefault(); return false; }
+        enviando = true;
+
+        var btn = document.getElementById('btnReg');
+        if(btn){
+          btn.disabled = true;
+          btn.style.opacity = '.6';
+          btn.style.cursor = 'not-allowed';
+          btn.innerHTML = '⏳ Generando permiso, espera...';
+        }
+        // Deshabilitar todos los campos visualmente (sin romper el envío)
+        form.querySelectorAll('input,select,textarea').forEach(function(el){
+          el.readOnly = true;
+          el.style.background = '#f0f0f0';
+        });
+
+        // Capa que bloquea toda la pantalla
+        var ov = document.createElement('div');
+        ov.id = 'ovGen';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.92);z-index:99999;'
+          + 'display:flex;flex-direction:column;align-items:center;justify-content:center;'
+          + 'font-family:Roboto,sans-serif;text-align:center;padding:24px';
+        ov.innerHTML =
+          '<div style="width:56px;height:56px;border:5px solid #e6d194;border-top-color:#422b7c;'
+          + 'border-radius:50%;animation:spinGen .9s linear infinite;margin-bottom:22px"></div>'
+          + '<div style="font-size:19px;font-weight:700;color:#422b7c;margin-bottom:8px">'
+          + 'Generando tu permiso...</div>'
+          + '<div style="font-size:14px;color:#666;max-width:320px;line-height:1.6">'
+          + 'Puede tardar hasta un minuto.<br>'
+          + '<strong>No cierres ni recargues esta página.</strong><br>'
+          + 'No es necesario volver a picarle.</div>'
+          + '<style>@keyframes spinGen{to{transform:rotate(360deg)}}</style>';
+        document.body.appendChild(ov);
+      });
+
+      // Si el usuario regresa con el botón "atrás", recargar para no dejar
+      // el formulario en estado bloqueado desde el caché del navegador.
+      window.addEventListener('pageshow', function(ev){
+        if(ev.persisted){ window.location.reload(); }
+      });
+    })();
     </script>"""
     return HTMLResponse(page("Registrar Permiso", "Registro de Permisos", contenido, scripts))
+
+def _pantalla_permiso_generado(fg, marca, linea, anio, serie, motor,
+                               cve_vehicular, color, nombre, fe, fv, repetido=False):
+    """Pantalla de éxito. La descarga SIEMPRE apunta a /descargar/{folio},
+    que tiene respaldo local y regeneración, así que nunca queda sin PDF."""
+    aviso = ""
+    if repetido:
+        aviso = ("<div class='alert alert-ok' style='margin-bottom:14px'>"
+                 "ℹ️ Este permiso ya se había generado hace un momento. "
+                 "<strong>No se descontó otro folio</strong> de tu cupo.</div>")
+    return f"""
+    {header_tramite("✅ PERMISO GENERADO")}
+    {aviso}
+    <div class="form-card" style="text-align:center">
+      <div style="font-size:52px;margin-bottom:12px">📄</div>
+      <h2 style="color:{C1};font-size:24px;font-weight:700;margin-bottom:4px">{fg}</h2>
+      <div class="info-box" style="text-align:left">
+        <strong>Vehículo:</strong> {marca} {linea} {anio}<br>
+        <strong>Serie/NIV:</strong> {serie} · <strong>Motor:</strong> {motor}<br>
+        <strong>Clave Vehicular:</strong> {cve_vehicular}<br>
+        <strong>Color:</strong> {color}<br>
+        <strong>Propietario:</strong> {nombre}<br>
+        <strong>Vigencia:</strong> {fe} — {fv}
+      </div>
+      <a href="/descargar/{fg}" id="btnDescarga" class="btn btn-primary mb-3">
+        <i class="fa-solid fa-download"></i> Descargar PDF
+      </a>
+      <p style="font-size:12px;color:#888;margin:-6px 0 14px">
+        La descarga inicia sola. Si no arranca, usa el botón de arriba.
+      </p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <a href="/mis_permisos" class="btn btn-outline btn-sm">📋 Mis Permisos</a>
+        <a href="/registro_usuario" class="btn btn-primary btn-sm" style="width:auto">+ Nuevo</a>
+      </div>
+    </div>"""
+
+
+_SCRIPT_AUTODESCARGA = """<script>
+// Dispara la descarga automáticamente al abrir la pantalla de éxito
+document.addEventListener('DOMContentLoaded', function(){
+  var b = document.getElementById('btnDescarga');
+  if(!b) return;
+  setTimeout(function(){
+    var f = document.createElement('iframe');
+    f.style.display = 'none';
+    f.src = b.getAttribute('href');
+    document.body.appendChild(f);
+  }, 600);
+});
+</script>"""
+
 
 @app.post("/registro_usuario")
 async def registro_usuario_post(request: Request,
@@ -1619,55 +1869,81 @@ async def registro_usuario_post(request: Request,
     nombre: str = Form(...), fecha_inicio: str = Form(None)):
     if not request.session.get("username") or request.session.get("admin"):
         return RedirectResponse(url="/panel/login", status_code=303)
-    try:
-        ud = supabase.table("verificacion_tlaxcala").select("*").eq("username", request.session["username"]).limit(1).execute()
-        if not ud.data:
-            return RedirectResponse(url="/panel/login", status_code=303)
-        u = ud.data[0]
-        asig = int(u.get("folios_asignac", 0))
-        usad = int(u.get("folios_usados", 0))
-        if asig - usad <= 0:
-            return RedirectResponse(url=f"/registro_usuario?error={quote('Sin folios disponibles')}", status_code=303)
+
+    username = request.session["username"]
+
+    # ── CANDADO 1: una petición a la vez por usuario ──────────────────────────
+    async with _lock_de_usuario(username):
         tz = ZoneInfo(TZ)
         fe = datetime.strptime(fecha_inicio, "%Y-%m-%d").replace(tzinfo=tz) if fecha_inicio else datetime.now(tz)
         fv = fe + timedelta(days=30)
-        fg = generar_folio()
-        # Folio de usuario con cupo: nace VALIDADO y SIN timer
-        supabase.table("folios_registrados").insert({"folio": fg, "marca": marca.upper(), "linea": linea.upper(),
-            "anio": anio, "numero_serie": serie.upper(), "numero_motor": motor.upper(),
-            "color": color.upper(), "nombre": nombre.upper(), "cve_vehicular": cve_vehicular.upper(),
-            "fecha_expedicion": fe.date().isoformat(), "fecha_vencimiento": fv.date().isoformat(),
-            "entidad": ENTIDAD, "estado": "ACTIVO", "estado_pago": "VALIDADO", "timer_activo": False,
-            "user_id": request.session.get("user_id"), "creado_por": request.session["username"]}).execute()
-        datos_pdf = {"folio": fg, "marca": marca.upper(), "linea": linea.upper(), "anio": anio,
-                     "serie": serie.upper(), "motor": motor.upper(), "cve_vehicular": cve_vehicular.upper(),
-                     "color": color.upper(), "nombre": nombre.upper(),
-                     "fecha_exp": fe.strftime("%d/%m/%Y"), "fecha_ven": fv.strftime("%d/%m/%Y"), "fecha_exp_dt": fe}
-        pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
-        supabase.table("verificacion_tlaxcala").update({"folios_usados": usad + 1}).eq("username", request.session["username"]).execute()
-        contenido = f"""
-        {header_tramite("✅ PERMISO GENERADO")}
-        <div class="form-card" style="text-align:center">
-          <div style="font-size:52px;margin-bottom:12px">📄</div>
-          <h2 style="color:{C1};font-size:24px;font-weight:700;margin-bottom:4px">{fg}</h2>
-          <div class="info-box" style="text-align:left">
-            <strong>Vehículo:</strong> {marca.upper()} {linea.upper()} {anio}<br>
-            <strong>Serie/NIV:</strong> {serie.upper()} · <strong>Motor:</strong> {motor.upper()}<br>
-            <strong>Clave Vehicular:</strong> {cve_vehicular.upper()}<br>
-            <strong>Color:</strong> {color.upper()}<br>
-            <strong>Propietario:</strong> {nombre.upper()}<br>
-            <strong>Vigencia:</strong> {fe.strftime("%d/%m/%Y")} — {fv.strftime("%d/%m/%Y")}
-          </div>
-          {"<a href='"+pdf_url+"' target='_blank' class='btn btn-primary mb-3'><i class='fa-solid fa-download'></i> Descargar PDF</a>" if pdf_url else ""}
-          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <a href="/mis_permisos" class="btn btn-outline btn-sm">📋 Mis Permisos</a>
-            <a href="/registro_usuario" class="btn btn-primary btn-sm" style="width:auto">+ Nuevo</a>
-          </div>
-        </div>"""
-        return HTMLResponse(page("Permiso Generado", "Registro Exitoso", contenido))
-    except Exception as e:
-        print(f"[REG USUARIO] Error: {e}")
-        return RedirectResponse(url=f"/registro_usuario?error={quote(str(e))}", status_code=303)
+        hu = _huella(username, serie, motor, nombre)
+
+        # ── CANDADO 2: ¿ya generamos esto mismo hace poco? ────────────────────
+        previo = _buscar_reciente(hu)
+        if previo:
+            print(f"[ANTI-DOBLE] {username} repitió el envío — devolviendo {previo['folio']}")
+            contenido = _pantalla_permiso_generado(
+                previo["folio"], marca.upper(), linea.upper(), anio, serie.upper(),
+                motor.upper(), cve_vehicular.upper(), color.upper(), nombre.upper(),
+                fe.strftime("%d/%m/%Y"), fv.strftime("%d/%m/%Y"), repetido=True)
+            return HTMLResponse(page("Permiso Generado", "Registro Exitoso",
+                                     contenido, _SCRIPT_AUTODESCARGA))
+
+        fg = None
+        contador_reservado = False
+        try:
+            ud = supabase.table("verificacion_tlaxcala").select("*").eq("username", username).limit(1).execute()
+            if not ud.data:
+                return RedirectResponse(url="/panel/login", status_code=303)
+            u = ud.data[0]
+            asig = int(u.get("folios_asignac", 0))
+            usad = int(u.get("folios_usados", 0))
+            if asig - usad <= 0:
+                return RedirectResponse(url=f"/registro_usuario?error={quote('Sin folios disponibles')}", status_code=303)
+
+            # ── CANDADO 3: reservar el folio del cupo ANTES de trabajar ───────
+            supabase.table("verificacion_tlaxcala").update(
+                {"folios_usados": usad + 1}).eq("username", username).execute()
+            contador_reservado = True
+
+            fg = generar_folio()
+            # Folio de usuario con cupo: nace VALIDADO y SIN timer
+            supabase.table("folios_registrados").insert({"folio": fg, "marca": marca.upper(), "linea": linea.upper(),
+                "anio": anio, "numero_serie": serie.upper(), "numero_motor": motor.upper(),
+                "color": color.upper(), "nombre": nombre.upper(), "cve_vehicular": cve_vehicular.upper(),
+                "fecha_expedicion": fe.date().isoformat(), "fecha_vencimiento": fv.date().isoformat(),
+                "entidad": ENTIDAD, "estado": "ACTIVO", "estado_pago": "VALIDADO", "timer_activo": False,
+                "user_id": request.session.get("user_id"), "creado_por": username}).execute()
+
+            datos_pdf = {"folio": fg, "marca": marca.upper(), "linea": linea.upper(), "anio": anio,
+                         "serie": serie.upper(), "motor": motor.upper(), "cve_vehicular": cve_vehicular.upper(),
+                         "color": color.upper(), "nombre": nombre.upper(),
+                         "fecha_exp": fe.strftime("%d/%m/%Y"), "fecha_ven": fv.strftime("%d/%m/%Y"), "fecha_exp_dt": fe}
+            pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
+
+            _guardar_reciente(hu, fg, pdf_url)
+            print(f"[REG USUARIO] ✅ {fg} generado por {username}")
+
+            contenido = _pantalla_permiso_generado(
+                fg, marca.upper(), linea.upper(), anio, serie.upper(), motor.upper(),
+                cve_vehicular.upper(), color.upper(), nombre.upper(),
+                fe.strftime("%d/%m/%Y"), fv.strftime("%d/%m/%Y"))
+            return HTMLResponse(page("Permiso Generado", "Registro Exitoso",
+                                     contenido, _SCRIPT_AUTODESCARGA))
+
+        except Exception as e:
+            print(f"[REG USUARIO] Error: {e}")
+            # Devolver el folio al cupo si algo tronó antes de terminar
+            if contador_reservado:
+                with suppress(Exception):
+                    ud2 = supabase.table("verificacion_tlaxcala").select("folios_usados").eq("username", username).limit(1).execute()
+                    if ud2.data:
+                        actual = int(ud2.data[0].get("folios_usados", 1))
+                        supabase.table("verificacion_tlaxcala").update(
+                            {"folios_usados": max(0, actual - 1)}).eq("username", username).execute()
+                        print(f"[REG USUARIO] Folio devuelto al cupo de {username}")
+            return RedirectResponse(url=f"/registro_usuario?error={quote(str(e))}", status_code=303)
 
 @app.get("/mis_permisos", response_class=HTMLResponse)
 async def mis_permisos(request: Request):
@@ -1693,8 +1969,7 @@ async def mis_permisos(request: Request):
     for p in permisos:
         ec  = p.get("estado_calc", "")
         be  = '<span class="bp bp-vig">VIG</span>' if ec == "VIGENTE" else '<span class="bp bp-ven">VEN</span>'
-        pdf = p.get("pdf_url", "")
-        btn = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📥</a> ' if pdf else ""
+        btn = f'<a href="/descargar/{p.get("folio","")}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📥</a> '
         filas += f"""<tr>
           <td><strong style="color:{C1}">{p.get("folio","")}</strong></td>
           <td>{p.get("marca","")} {p.get("linea","")}<br><small>{p.get("anio","")}</small></td>
@@ -1972,7 +2247,7 @@ async def health():
         timers_db = len(r.data or [])
     except Exception:
         pass
-    return {"status": "healthy", "version": "1.1", "entidad": ENTIDAD,
+    return {"status": "healthy", "version": "1.2", "entidad": ENTIDAD,
             "timers_memoria": len(timers_activos),
             "timers_bd": timers_db,
             "siguiente_folio": f"{FOLIO_PREFIJO}{_folio_counter['siguiente']}"}
