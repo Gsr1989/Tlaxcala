@@ -64,7 +64,8 @@ TABLAS_DISPONIBLES = {
         "nombre": "Folios Registrados", "pk_col": "folio",
         "columnas": ["folio","marca","linea","anio","numero_serie","numero_motor","color","nombre",
                      "cve_vehicular","fecha_expedicion","fecha_vencimiento","entidad","estado",
-                     "estado_pago","creado_por","pdf_url"],
+                     "estado_pago","creado_por","pdf_url","timer_activo","timer_expira_en",
+                     "timer_detenido_en","timer_motivo"],
     },
     "verificacion_tlaxcala": {
         "nombre": "Usuarios del Sistema", "pk_col": "id",
@@ -76,17 +77,119 @@ TABLAS_DISPONIBLES = {
     },
 }
 
-# ===================== TIMERS =====================
+# ===================== TIMERS — FUENTE DE VERDAD: SUPABASE =====================
+#
+# El timer NO vive en RAM. La RAM sólo tiene la tarea asyncio que "despierta".
+# Antes de CUALQUIER borrado se consulta Supabase. Si la BD dice que el timer
+# está detenido (validado / comprobante / detenido manual), NO se borra nada.
+#
+# Detener desde Telegram y detener desde el panel web llaman a la MISMA
+# función: detener_timer_global(). Por eso quedan sincronizados siempre.
+#
+# Columnas necesarias en folios_registrados (correr el SQL del README):
+#   timer_activo boolean default false
+#   timer_expira_en timestamptz
+#   timer_detenido_en timestamptz
+#   timer_motivo text
+# ==============================================================================
 
-timers_activos       = {}
+timers_activos       = {}   # sólo cache local de tareas asyncio
 user_folios          = {}
 pending_comprobantes = {}
 TOTAL_MINUTOS_TIMER  = 36 * 60
 
-async def eliminar_folio_automatico(folio: str):
+ESTADOS_STOP_PAGO = {"VALIDADO"}
+ESTADOS_STOP_GRAL = {"COMPROBANTE_ENVIADO", "TIMER_DETENIDO"}
+
+
+def _leer_estado_folio(folio: str):
+    """Lee el estado real del folio desde Supabase. Devuelve dict, None o 'ERROR'."""
     try:
-        uid = timers_activos[folio]["user_id"] if folio in timers_activos else None
-        await asyncio.to_thread(lambda: supabase.table("folios_registrados").delete().eq("folio", folio).execute())
+        r = supabase.table("folios_registrados") \
+            .select("folio,estado,estado_pago,user_id,nombre,timer_activo") \
+            .eq("folio", folio).limit(1).execute()
+        return r.data[0] if r.data else None
+    except Exception as e:
+        print(f"[TIMER] Error leyendo {folio}: {e}")
+        return "ERROR"
+
+
+async def _timer_debe_seguir(folio: str) -> bool:
+    """¿El timer sigue vivo según la BD? Ante error de red NO se borra (devuelve True)."""
+    row = await asyncio.to_thread(_leer_estado_folio, folio)
+    if row == "ERROR":
+        return True          # error de red: NUNCA borrar por las dudas
+    if row is None:
+        return False         # ya no existe
+    if (row.get("estado_pago") or "") in ESTADOS_STOP_PAGO:
+        return False
+    if (row.get("estado") or "") in ESTADOS_STOP_GRAL:
+        return False
+    if row.get("timer_activo") is False:
+        return False
+    return True
+
+
+async def detener_timer_global(folio: str, motivo: str,
+                               estado_pago: str = None, estado: str = None) -> dict:
+    """
+    ÚNICA vía para detener un timer. La usan el bot de Telegram Y el panel web.
+    Escribe en Supabase (fuente de verdad) y cancela la tarea local si existe.
+    """
+    folio = folio.strip().upper()
+    row = await asyncio.to_thread(_leer_estado_folio, folio)
+    if row in (None, "ERROR"):
+        cancelar_timer_folio(folio)
+        return {"ok": False, "motivo": "folio no encontrado", "folio": folio,
+                "user_id": None, "nombre": "", "cancelado_mem": False}
+
+    parches = {
+        "timer_activo": False,
+        "timer_detenido_en": datetime.now().isoformat(),
+        "timer_motivo": motivo,
+    }
+    if estado_pago:
+        parches["estado_pago"] = estado_pago
+    if estado:
+        parches["estado"] = estado
+
+    ok_db = True
+    try:
+        await asyncio.to_thread(
+            lambda: supabase.table("folios_registrados").update(parches).eq("folio", folio).execute()
+        )
+    except Exception as e:
+        ok_db = False
+        print(f"[TIMER] Error deteniendo {folio} en BD: {e}")
+
+    cancelado_mem = cancelar_timer_folio(folio)
+    print(f"[TIMER] STOP {folio} motivo={motivo} db={ok_db} mem={cancelado_mem}")
+    return {
+        "ok": ok_db,
+        "folio": folio,
+        "user_id": row.get("user_id"),
+        "nombre": row.get("nombre", "") or "",
+        "cancelado_mem": cancelado_mem,
+    }
+
+
+async def eliminar_folio_automatico(folio: str):
+    """Borra el folio SOLO si la BD confirma que el timer sigue activo."""
+    if not await _timer_debe_seguir(folio):
+        print(f"[TIMER] {folio} ya fue detenido — NO se borra")
+        limpiar_timer_folio(folio)
+        return
+    try:
+        row = await asyncio.to_thread(_leer_estado_folio, folio)
+        uid = None
+        if isinstance(row, dict):
+            uid = row.get("user_id")
+        if not uid and folio in timers_activos:
+            uid = timers_activos[folio].get("user_id")
+
+        await asyncio.to_thread(
+            lambda: supabase.table("folios_registrados").delete().eq("folio", folio).execute()
+        )
         try:
             await asyncio.to_thread(lambda: supabase.storage.from_(BUCKET_NAME).remove([f"{folio}.pdf"]))
         except Exception as e:
@@ -95,52 +198,115 @@ async def eliminar_folio_automatico(folio: str):
         if os.path.exists(ruta_local):
             os.remove(ruta_local)
         if uid:
-            await bot.send_message(uid,
-                f"⏰ TIEMPO AGOTADO - TLAXCALA\n\nEl folio {folio} fue eliminado por no completar el pago en 36 horas.\n\n📋 Use /tlaxcala para generar otro permiso.")
+            with suppress(Exception):
+                await bot.send_message(uid,
+                    f"⏰ TIEMPO AGOTADO - TLAXCALA\n\nEl folio {folio} fue eliminado por no completar el pago en 36 horas.\n\n📋 Use /tlaxcala para generar otro permiso.")
         limpiar_timer_folio(folio)
+        print(f"[TIMER] {folio} eliminado por vencimiento")
     except Exception as e:
         print(f"[ERROR] eliminando folio {folio}: {e}")
 
+
 async def enviar_recordatorio(folio: str, minutos_restantes: int):
     try:
-        if folio not in timers_activos:
+        row = await asyncio.to_thread(_leer_estado_folio, folio)
+        uid = None
+        if isinstance(row, dict):
+            uid = row.get("user_id")
+        if not uid and folio in timers_activos:
+            uid = timers_activos[folio].get("user_id")
+        if not uid:
             return
-        uid = timers_activos[folio]["user_id"]
         await bot.send_message(uid,
             f"⚡ RECORDATORIO - TLAXCALA\n\nFolio: {folio}\nTiempo restante: {minutos_restantes} minutos\n\n📸 Envíe su comprobante de pago.\n\n📋 Use /tlaxcala para otro permiso.")
     except Exception as e:
         print(f"[ERROR] recordatorio {folio}: {e}")
 
-async def iniciar_timer_36h(user_id: int, folio: str, nombre: str = ""):
+
+async def iniciar_timer_36h(user_id: int, folio: str, nombre: str = "",
+                            segundos_restantes: int = None, marcar_db: bool = True):
+    """
+    Arranca el timer. Marca timer_activo=True + timer_expira_en en Supabase,
+    para que sobreviva a reinicios de Render (ver rehidratar_timers).
+    """
+    total = segundos_restantes if segundos_restantes is not None else TOTAL_MINUTOS_TIMER * 60
+
+    if marcar_db:
+        expira = datetime.now() + timedelta(seconds=total)
+        try:
+            await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
+                "timer_activo": True,
+                "timer_expira_en": expira.isoformat(),
+                "timer_detenido_en": None,
+                "timer_motivo": None,
+            }).eq("folio", folio).execute())
+        except Exception as e:
+            print(f"[TIMER] No se pudo marcar activo {folio}: {e}")
+
     async def timer_task():
-        await asyncio.sleep(34.5 * 3600)
-        if folio not in timers_activos:
-            return
-        await enviar_recordatorio(folio, 90)
-        await asyncio.sleep(30 * 60)
-        if folio not in timers_activos:
-            return
-        await enviar_recordatorio(folio, 60)
-        await asyncio.sleep(30 * 60)
-        if folio not in timers_activos:
-            return
-        await enviar_recordatorio(folio, 30)
-        await asyncio.sleep(20 * 60)
-        if folio not in timers_activos:
-            return
-        await enviar_recordatorio(folio, 10)
-        await asyncio.sleep(10 * 60)
-        if folio in timers_activos:
-            await eliminar_folio_automatico(folio)
+        restante = total
+        # Avisos a 90 / 60 / 30 / 10 min del final; cada uno revalida contra la BD
+        for falta, minutos in [(90 * 60, 90), (60 * 60, 60), (30 * 60, 30), (10 * 60, 10)]:
+            espera = restante - falta
+            if espera > 0:
+                await asyncio.sleep(espera)
+                restante = falta
+                if not await _timer_debe_seguir(folio):
+                    print(f"[TIMER] {folio} detenido durante recordatorios — task termina")
+                    limpiar_timer_folio(folio)
+                    return
+                await enviar_recordatorio(folio, minutos)
+        if restante > 0:
+            await asyncio.sleep(restante)
+        await eliminar_folio_automatico(folio)
+
     task = asyncio.create_task(timer_task())
-    timers_activos[folio] = {"task": task, "user_id": user_id, "start_time": datetime.now(), "nombre": nombre}
+    timers_activos[folio] = {
+        "task": task,
+        "user_id": user_id,
+        "start_time": datetime.now() - timedelta(seconds=(TOTAL_MINUTOS_TIMER * 60 - total)),
+        "nombre": nombre,
+    }
     user_folios.setdefault(user_id, []).append(folio)
-    print(f"[TIMER] Iniciado folio {folio} ({nombre})")
+    print(f"[TIMER] Iniciado {folio} ({nombre}) — {int(total/60)} min restantes")
+
+
+async def rehidratar_timers():
+    """Al arrancar el servicio, revive los timers que la BD dice que siguen vivos."""
+    try:
+        r = await asyncio.to_thread(lambda: supabase.table("folios_registrados")
+            .select("folio,user_id,nombre,timer_expira_en")
+            .eq("entidad", ENTIDAD).eq("timer_activo", True).execute())
+        filas = r.data or []
+        ahora = datetime.now()
+        revividos = 0
+        for row in filas:
+            folio = row.get("folio")
+            exp   = row.get("timer_expira_en")
+            if not folio or not exp:
+                continue
+            try:
+                expira = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).replace(tzinfo=None)
+            except Exception:
+                continue
+            seg = (expira - ahora).total_seconds()
+            if seg <= 0:
+                await eliminar_folio_automatico(folio)
+                continue
+            await iniciar_timer_36h(row.get("user_id") or 0, folio, row.get("nombre", "") or "",
+                                    segundos_restantes=int(seg), marcar_db=False)
+            revividos += 1
+        print(f"[TIMER] Rehidratados {revividos}/{len(filas)} timers desde la BD")
+    except Exception as e:
+        print(f"[TIMER] Error rehidratando: {e}")
+
 
 def cancelar_timer_folio(folio: str) -> bool:
+    """Cancela SOLO la tarea local. No toca la BD (eso lo hace detener_timer_global)."""
     if folio not in timers_activos:
         return False
-    timers_activos[folio]["task"].cancel()
+    with suppress(Exception):
+        timers_activos[folio]["task"].cancel()
     uid = timers_activos[folio]["user_id"]
     del timers_activos[folio]
     if uid in user_folios and folio in user_folios[uid]:
@@ -148,6 +314,7 @@ def cancelar_timer_folio(folio: str) -> bool:
         if not user_folios[uid]:
             del user_folios[uid]
     return True
+
 
 def limpiar_timer_folio(folio: str):
     if folio not in timers_activos:
@@ -159,8 +326,23 @@ def limpiar_timer_folio(folio: str):
         if not user_folios[uid]:
             del user_folios[uid]
 
+
 def obtener_folios_usuario(user_id: int) -> list:
     return user_folios.get(user_id, [])
+
+
+def _folios_activos_db(user_id: int) -> list:
+    """Folios con timer vivo según la BD (no depende de la RAM)."""
+    try:
+        r = supabase.table("folios_registrados") \
+            .select("folio,nombre,timer_expira_en") \
+            .eq("entidad", ENTIDAD).eq("user_id", user_id).eq("timer_activo", True) \
+            .execute()
+        return r.data or []
+    except Exception as e:
+        print(f"[TIMER] Error listando folios de {user_id}: {e}")
+        return []
+
 
 # ===================== FOLIOS (ZX + 5 dígitos) =====================
 
@@ -381,6 +563,7 @@ async def generar_y_enviar_background(chat_id: int, datos: dict, user_id: int):
     try:
         pdf_path = await asyncio.to_thread(generar_pdf, datos)
         pdf_url  = await asyncio.to_thread(subir_pdf_a_storage, pdf_path, folio)
+        expira   = datetime.now() + timedelta(hours=36)
         await asyncio.to_thread(lambda: supabase.table("folios_registrados").insert({
             "folio": folio, "marca": datos["marca"], "linea": datos["linea"],
             "anio": datos["anio"], "numero_serie": datos["serie"],
@@ -393,6 +576,8 @@ async def generar_y_enviar_background(chat_id: int, datos: dict, user_id: int):
             "user_id": user_id,
             "creado_por": f"BOT_TG_{datos.get('username','unknown')}",
             "pdf_url": pdf_url,
+            "timer_activo": True,
+            "timer_expira_en": expira.isoformat(),
         }).execute())
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Validar Admin",  callback_data=f"validar_{folio}"),
@@ -406,7 +591,8 @@ async def generar_y_enviar_background(chat_id: int, datos: dict, user_id: int):
                 f"🔗 {BASE_URL}/consulta/{folio}\n\n"
                 f"⏰ TIMER ACTIVO (36 horas)"
             ), reply_markup=keyboard)
-        await iniciar_timer_36h(user_id, folio, nombre)
+        # marcar_db=False porque el INSERT de arriba ya dejó timer_activo/expira
+        await iniciar_timer_36h(user_id, folio, nombre, marcar_db=False)
         await bot.send_message(user_id,
             f"💰 INSTRUCCIONES DE PAGO — TLAXCALA\n\n"
             f"📄 Folio: {folio}\n⏰ Tiempo límite: 36 horas\n\n"
@@ -440,17 +626,22 @@ async def start_cmd(message: types.Message, state: FSMContext):
 @dp.message(Command("tlaxcala"))
 async def tlaxcala_cmd(message: types.Message, state: FSMContext):
     await state.clear()
-    folios_activos = obtener_folios_usuario(message.from_user.id)
-    if folios_activos:
+    # Lee los folios activos desde la BD (no de la RAM) para que coincida con el panel web
+    activos_db = await asyncio.to_thread(_folios_activos_db, message.from_user.id)
+    if activos_db:
         texto = "📋 FOLIOS ACTIVOS\n" + "─" * 28 + "\n\n"
         botones = []
-        for f in folios_activos:
-            if f in timers_activos:
-                seg  = max(0, int(TOTAL_MINUTOS_TIMER * 60 - (datetime.now() - timers_activos[f]["start_time"]).total_seconds()))
+        ahora = datetime.now()
+        for row in activos_db:
+            f = row["folio"]
+            exp = row.get("timer_expira_en")
+            try:
+                expira = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).replace(tzinfo=None)
+                seg = max(0, int((expira - ahora).total_seconds()))
                 h, m = divmod(seg // 60, 60)
-                texto += f"Folio: {f}\n{timers_activos[f].get('nombre','')}\n{h}h {m}min restantes\n\n"
-            else:
-                texto += f"Folio: {f}\n(sin timer)\n\n"
+                texto += f"Folio: {f}\n{row.get('nombre','') or ''}\n{h}h {m}min restantes\n\n"
+            except Exception:
+                texto += f"Folio: {f}\n{row.get('nombre','') or ''}\n(sin fecha de expiración)\n\n"
             botones.append([InlineKeyboardButton(text=f"⏹️ Detener {f}", callback_data=f"detener_{f}")])
         await message.answer(texto.strip(), reply_markup=InlineKeyboardMarkup(inline_keyboard=botones))
         await message.answer("Para NUEVO permiso escribe la MARCA del vehículo:")
@@ -527,18 +718,19 @@ async def codigo_admin(message: types.Message):
     if not folio or not folio.startswith(FOLIO_PREFIJO):
         await message.answer(f"⚠️ Formato: SERO{FOLIO_PREFIJO}XXXXX\n\n📋 Use /tlaxcala para otro permiso.")
         return
-    cancelado = cancelar_timer_folio(folio)
-    with suppress(Exception):
-        await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
-            "estado_pago": "VALIDADO", "fecha_comprobante": datetime.now().isoformat()
-        }).eq("folio", folio).execute())
-    msg = f"✅ Validación admin\nFolio: {folio}\n" + ("⏹️ Timer cancelado" if cancelado else "⚠️ Timer ya inactivo")
-    await message.answer(msg + "\n\n📋 Use /tlaxcala para otro permiso.")
+    r = await detener_timer_global(folio, "admin_telegram_SERO", estado_pago="VALIDADO")
+    if not r["ok"]:
+        await message.answer(f"⚠️ Folio {folio} no encontrado en la base.\n\n📋 Use /tlaxcala para otro permiso.")
+        return
+    await message.answer(
+        f"✅ Validación admin\nFolio: {folio}\n⏹️ Timer detenido (sincronizado con el panel web)"
+        f"\n\n📋 Use /tlaxcala para otro permiso.")
 
 @dp.message(lambda m: m.content_type == ContentType.PHOTO)
 async def recibir_comprobante(message: types.Message):
     uid = message.from_user.id
-    folios = obtener_folios_usuario(uid)
+    activos_db = await asyncio.to_thread(_folios_activos_db, uid)
+    folios = [r["folio"] for r in activos_db]
     if not folios:
         await message.answer("ℹ️ No tienes folios pendientes.\n\n📋 Use /tlaxcala para generar un permiso.")
         return
@@ -548,10 +740,10 @@ async def recibir_comprobante(message: types.Message):
         await message.answer(f"📄 Varios folios activos:\n\n{lista}\n\nResponde con el NÚMERO DE FOLIO.\n\n📋 Use /tlaxcala para otro permiso.")
         return
     folio = folios[0]
-    cancelar_timer_folio(folio)
+    await detener_timer_global(folio, "comprobante_telegram", estado="COMPROBANTE_ENVIADO")
     with suppress(Exception):
         await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
-            "estado": "COMPROBANTE_ENVIADO", "fecha_comprobante": datetime.now().isoformat()
+            "fecha_comprobante": datetime.now().isoformat()
         }).eq("folio", folio).execute())
     await message.answer(f"✅ Comprobante recibido\nFolio: {folio}\n⏹️ Timer detenido.\n\n📋 Use /tlaxcala para otro permiso.")
 
@@ -559,70 +751,73 @@ async def recibir_comprobante(message: types.Message):
 async def especificar_folio_comprobante(message: types.Message):
     uid = message.from_user.id
     fe = message.text.strip().upper()
-    fl = obtener_folios_usuario(uid)
+    activos_db = await asyncio.to_thread(_folios_activos_db, uid)
+    fl = [r["folio"] for r in activos_db]
     if fe not in fl:
         await message.answer("❌ Folio no en tu lista.\n\n📋 Use /tlaxcala para otro permiso.")
         return
-    cancelar_timer_folio(fe)
-    del pending_comprobantes[uid]
+    await detener_timer_global(fe, "comprobante_telegram", estado="COMPROBANTE_ENVIADO")
     with suppress(Exception):
         await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
-            "estado": "COMPROBANTE_ENVIADO", "fecha_comprobante": datetime.now().isoformat()
+            "fecha_comprobante": datetime.now().isoformat()
         }).eq("folio", fe).execute())
-    await message.answer(f"✅ Comprobante asociado.\nFolio: {fe}\n\n📋 Use /tlaxcala para otro permiso.")
+    pending_comprobantes.pop(uid, None)
+    await message.answer(f"✅ Comprobante asociado.\nFolio: {fe}\n⏹️ Timer detenido.\n\n📋 Use /tlaxcala para otro permiso.")
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("validar_"))
 async def callback_validar(callback: CallbackQuery):
     folio = callback.data.replace("validar_", "")
-    if folio in timers_activos:
-        uid = timers_activos[folio]["user_id"]
-        nombre = timers_activos[folio].get("nombre", "")
-        cancelar_timer_folio(folio)
-        with suppress(Exception):
-            await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
-                "estado_pago": "VALIDADO", "fecha_comprobante": datetime.now().isoformat()
-            }).eq("folio", folio).execute())
-        await callback.answer("✅ Folio validado", show_alert=True)
+    r = await detener_timer_global(folio, "callback_validar_telegram", estado_pago="VALIDADO")
+    if not r["ok"]:
+        await callback.answer("❌ Folio no encontrado en la base", show_alert=True)
+        return
+    with suppress(Exception):
+        await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
+            "fecha_comprobante": datetime.now().isoformat()
+        }).eq("folio", r["folio"]).execute())
+    await callback.answer("✅ Folio validado", show_alert=True)
+    with suppress(Exception):
         await callback.message.edit_reply_markup(reply_markup=None)
-        try:
-            await bot.send_message(uid, f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {folio}\nTitular: {nombre}\nTu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
-        except Exception as e:
-            print(f"[ERROR] notificando usuario: {e}")
-    else:
-        await callback.answer("❌ Folio no encontrado en timers activos", show_alert=True)
+    if r.get("user_id"):
+        with suppress(Exception):
+            await bot.send_message(r["user_id"],
+                f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {r['folio']}\nTitular: {r.get('nombre','')}\nTu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
 
 @dp.callback_query(lambda c: c.data and c.data.startswith("detener_"))
 async def callback_detener(callback: CallbackQuery):
     folio = callback.data.replace("detener_", "")
-    if folio in timers_activos:
-        nombre = timers_activos[folio].get("nombre", "")
-        cancelar_timer_folio(folio)
-        with suppress(Exception):
-            await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({"estado": "TIMER_DETENIDO"}).eq("folio", folio).execute())
-        await callback.answer("⏹️ Timer detenido", show_alert=True)
+    r = await detener_timer_global(folio, "callback_detener_telegram", estado="TIMER_DETENIDO")
+    if not r["ok"]:
+        await callback.answer("❌ Folio no encontrado en la base", show_alert=True)
+        return
+    await callback.answer("⏹️ Timer detenido", show_alert=True)
+    with suppress(Exception):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(f"⏹️ TIMER DETENIDO\nFolio: {folio}\nTitular: {nombre}\n\n📋 Use /tlaxcala para otro permiso.")
-    else:
-        await callback.answer("❌ Timer ya no está activo", show_alert=True)
+    await callback.message.answer(
+        f"⏹️ TIMER DETENIDO\nFolio: {r['folio']}\nTitular: {r.get('nombre','')}\n"
+        f"(sincronizado con el panel web)\n\n📋 Use /tlaxcala para otro permiso.")
 
 @dp.message(Command("folios"))
 async def ver_folios_activos(message: types.Message):
     uid = message.from_user.id
-    folios = obtener_folios_usuario(uid)
-    if not folios:
+    activos_db = await asyncio.to_thread(_folios_activos_db, uid)
+    if not activos_db:
         await message.answer("ℹ️ No hay folios activos.\n\n📋 Use /tlaxcala para generar uno.")
         return
-    lista = []
-    botones = []
-    for f in folios:
-        if f in timers_activos:
-            seg = max(0, int(TOTAL_MINUTOS_TIMER * 60 - (datetime.now() - timers_activos[f]["start_time"]).total_seconds()))
+    lista, botones = [], []
+    ahora = datetime.now()
+    for row in activos_db:
+        f = row["folio"]
+        exp = row.get("timer_expira_en")
+        try:
+            expira = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).replace(tzinfo=None)
+            seg = max(0, int((expira - ahora).total_seconds()))
             h, m = divmod(seg // 60, 60)
-            lista.append(f"• {f} — {timers_activos[f].get('nombre','')}\n  {h}h {m}min restantes")
-        else:
-            lista.append(f"• {f} (sin timer)")
+            lista.append(f"• {f} — {row.get('nombre','') or ''}\n  {h}h {m}min restantes")
+        except Exception:
+            lista.append(f"• {f} — {row.get('nombre','') or ''}")
         botones.append([InlineKeyboardButton(text=f"⏹️ Detener {f}", callback_data=f"detener_{f}")])
-    await message.answer(f"📋 FOLIOS ACTIVOS ({len(folios)})\n\n" + "\n\n".join(lista) + "\n\n📋 Use /tlaxcala para otro permiso.",
+    await message.answer(f"📋 FOLIOS ACTIVOS ({len(activos_db)})\n\n" + "\n\n".join(lista) + "\n\n📋 Use /tlaxcala para otro permiso.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=botones))
 
 @dp.message()
@@ -677,6 +872,7 @@ tbody tr:last-child td{{border-bottom:none;}}tbody tr:hover td{{background:#f6f3
 .tabla-wrap{{overflow-x:auto;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}}
 .bp{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:white;}}
 .bp-p{{background:#dc3545;}}.bp-v{{background:#1a6e2e;}}.bp-vig{{background:#1a6e2e;}}.bp-ven{{background:{C1};}}
+.bp-t{{background:#e67e22;}}.bp-td{{background:#7f8c8d;}}
 .form-card{{background:#f8f9fa;border-radius:14px;padding:20px;border:1px solid {C3};box-shadow:0 4px 16px rgba(0,0,0,.06);}}
 .form-label{{font-weight:600;font-size:14px;display:block;margin-bottom:4px;}}
 .form-control{{display:block;width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:.2s;font-family:inherit;}}
@@ -690,6 +886,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .btn-outline{{background:white;border:1.5px solid #ddd;color:#444;}}
 .btn-outline:hover{{border-color:{C1};color:{C1};}}
 .btn-danger{{background:#dc3545;color:white;}}.btn-success{{background:#1a6e2e;color:white;}}
+.btn-warn{{background:#e67e22;color:white;}}
 .alert{{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;}}
 .alert-ok{{background:#d4edda;color:#155724;border:1px solid #c3e6cb;}}
 .alert-err{{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}}
@@ -737,7 +934,7 @@ select.form-control{{appearance:none;background-image:url("data:image/svg+xml,%3
 .anim-scroll.ArribaAbajo{{transform:translateY(-50px);}}
 .anim-scroll.is-visible{{opacity:1;transform:translate(0);}}
 
-/* ---------- HEADER DE TRÁMITE (clon exacto de la ficha oficial: título+línea+subtítulo a la izq, logo doble a la der) ---------- */
+/* ---------- HEADER DE TRÁMITE (clon exacto de la ficha oficial) ---------- */
 .tramite-header{{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;}}
 .tramite-header-text{{flex:1;min-width:220px;}}
 .tramite-header-text h4{{font-size:19px;font-weight:700;color:#1d1d1b;margin:0 0 10px;display:flex;align-items:center;gap:8px;}}
@@ -769,15 +966,11 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script>"""
 
-# Logo real extraído de tu plantilla TLAXCALA2026(1).pdf — ya subido como logo_brand.png en /static
 LOGO_URL   = "/static/logo_brand.png"
 ESCUDO_URL = "/static/logo_brand.png"
-# Logo doble "TLAXCALA · SECRETARÍA DE FINANZAS" — nombres EXACTOS tal cual subidos al repo (con guion, no guion bajo)
 LOGO_SECRETARIA_URL = "/static/tlaxcala-financiera.png"
 
 def header_tramite(titulo_html: str, subtitulo: str = "OFICINA VIRTUAL DE TRÁMITES Y SERVICIOS", icono: str = "fa-solid fa-car") -> str:
-    """Header clonado de la ficha oficial: título + línea + subtítulo a la izquierda, logo a la derecha.
-    logo_brand.png ya incluye el lockup completo Tlaxcala + Secretaría de Finanzas, así que se muestra una sola vez."""
     return f"""<div class="tramite-header">
       <div class="tramite-header-text">
         <h4><i class="{icono} arrow-icon-section"></i> {titulo_html}</h4>
@@ -800,6 +993,7 @@ def _sidebar_links():
     return """
     <li><a href="/panel/admin"><i class="fa-solid fa-house"></i>Inicio</a></li>
     <li><a href="/panel/folios"><i class="fa-solid fa-list-check"></i>Ver Folios</a></li>
+    <li><a href="/panel/timers"><i class="fa-solid fa-stopwatch"></i>Timers Activos</a></li>
     <li><a href="/panel/registro_admin"><i class="fa-solid fa-file-circle-plus"></i>Registrar Permiso</a></li>
     <li><a href="/panel/crear_usuario"><i class="fa-solid fa-user-plus"></i>Crear Usuario</a></li>
     <li><a href="/panel/tablas"><i class="fa-solid fa-database"></i>Tablas BD</a></li>
@@ -900,17 +1094,19 @@ _keep_task = None
 async def keep_alive():
     while True:
         await asyncio.sleep(600)
-        print("[HEARTBEAT] Tlaxcala activo")
+        print(f"[HEARTBEAT] Tlaxcala activo — timers en memoria: {len(timers_activos)}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _keep_task
     await asyncio.to_thread(_sb_inicializar_folio)
+    # Revive los timers que quedaron vivos en la BD antes del reinicio
+    await rehidratar_timers()
     await bot.delete_webhook(drop_pending_updates=True)
     webhook_url = f"{BASE_URL}/webhook"
     await bot.set_webhook(webhook_url, allowed_updates=["message", "callback_query"])
     _keep_task = asyncio.create_task(keep_alive())
-    print(f"[SISTEMA] Tlaxcala v1.0 listo — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
+    print(f"[SISTEMA] Tlaxcala v1.1 listo — siguiente folio: {FOLIO_PREFIJO}{_folio_counter['siguiente']}")
     yield
     if _keep_task:
         _keep_task.cancel()
@@ -918,7 +1114,7 @@ async def lifespan(app: FastAPI):
             await _keep_task
     await bot.session.close()
 
-app = FastAPI(lifespan=lifespan, title="Tránsito Tlaxcala", version="1.0")
+app = FastAPI(lifespan=lifespan, title="Tránsito Tlaxcala", version="1.1")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "tlaxcala_clave_super_segura_cambiar"))
 try:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -983,21 +1179,28 @@ async def panel_admin(request: Request):
     if not request.session.get("admin"):
         return RedirectResponse(url="/panel/login", status_code=303)
     pendientes = 0
+    timers_db = 0
     try:
         r = supabase.table("folios_registrados").select("folio").eq("estado_pago", "PENDIENTE_PAGO").eq("entidad", ENTIDAD).execute()
         pendientes = len(r.data or [])
+    except Exception:
+        pass
+    try:
+        r2 = supabase.table("folios_registrados").select("folio").eq("timer_activo", True).eq("entidad", ENTIDAD).execute()
+        timers_db = len(r2.data or [])
     except Exception:
         pass
     color_pend = "#dc3545" if pendientes else "#1a6e2e"
     contenido = f"""
     {header_tramite("PANEL DE ADMINISTRACIÓN", icono="fa-solid fa-house")}
     <div class="row-2 mb-3">
-      <div class="stat-card"><div class="stat-num">{len(timers_activos)}</div><div class="stat-lbl">Timers Activos</div></div>
+      <div class="stat-card"><div class="stat-num">{timers_db}</div><div class="stat-lbl">Timers Activos (BD)</div></div>
       <div class="stat-card"><div class="stat-num" style="color:{color_pend}">{pendientes}</div><div class="stat-lbl">Pendientes Pago</div></div>
     </div>
     <div class="stat-card mb-3"><div class="stat-num">{FOLIO_PREFIJO}{_folio_counter['siguiente']}</div><div class="stat-lbl">Siguiente Folio</div></div>
     <div class="grid anim-scroll ArribaAbajo">
       <a href="/panel/folios" class="menu-btn"><i class="fa-solid fa-list-check"></i><span>Ver Folios</span></a>
+      <a href="/panel/timers" class="menu-btn"><i class="fa-solid fa-stopwatch"></i><span>Timers Activos</span></a>
       <a href="/panel/registro_admin" class="menu-btn"><i class="fa-solid fa-file-circle-plus"></i><span>Registrar Permiso</span></a>
       <a href="/panel/crear_usuario" class="menu-btn"><i class="fa-solid fa-user-plus"></i><span>Crear Usuario</span></a>
       <a href="/panel/tablas" class="menu-btn"><i class="fa-solid fa-database"></i><span>Tablas BD</span></a>
@@ -1005,6 +1208,99 @@ async def panel_admin(request: Request):
       <a href="/panel/logout" class="menu-btn danger grid-full"><i class="fa-solid fa-right-from-bracket"></i><span>Cerrar Sesión</span></a>
     </div>"""
     return HTMLResponse(page("Panel Admin", "Panel de Administración — Tlaxcala SMyT", contenido))
+
+# ===================== TIMERS (panel web, sincronizado con Telegram) =====================
+
+@app.get("/panel/timers", response_class=HTMLResponse)
+async def panel_timers(request: Request):
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login", status_code=303)
+    msg = request.query_params.get("msg", "")
+    try:
+        r = supabase.table("folios_registrados") \
+            .select("folio,nombre,marca,linea,anio,estado,estado_pago,timer_expira_en,user_id") \
+            .eq("entidad", ENTIDAD).eq("timer_activo", True) \
+            .order("timer_expira_en", desc=False).execute()
+        filas_db = r.data or []
+    except Exception as e:
+        filas_db = []
+        print(f"[TIMERS] Error: {e}")
+
+    ahora = datetime.now()
+    filas = ""
+    for row in filas_db:
+        f = row["folio"]
+        exp = row.get("timer_expira_en")
+        try:
+            expira = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).replace(tzinfo=None)
+            seg = max(0, int((expira - ahora).total_seconds()))
+            h, m = divmod(seg // 60, 60)
+            restante = f"{h}h {m}min"
+            urgente = seg < 3600
+        except Exception:
+            restante = "—"
+            urgente = False
+        color = "#dc3545" if urgente else C1
+        en_mem = "🟢" if f in timers_activos else "⚪"
+        filas += f"""<tr>
+          <td><strong style="color:{C1}">{f}</strong><br><small style="color:#999">{en_mem} {row.get('nombre','') or ''}</small></td>
+          <td>{row.get('marca','')} {row.get('linea','')}<br><small>{row.get('anio','')}</small></td>
+          <td><strong style="color:{color}">{restante}</strong></td>
+          <td>
+            <form method="POST" action="/panel/timer/detener/{f}" style="display:inline">
+              <button class="btn btn-warn btn-sm" onclick="return confirm('¿Detener el timer de {f}? El folio NO se borrará.')">⏹️ Detener</button>
+            </form>
+            <form method="POST" action="/panel/validar/{f}" style="display:inline">
+              <button class="btn btn-success btn-sm" onclick="return confirm('¿Validar pago de {f}?')">✅ Validar</button>
+            </form>
+          </td>
+        </tr>"""
+
+    contenido = f"""
+    {header_tramite("TIMERS ACTIVOS", icono="fa-solid fa-stopwatch")}
+    {"<div class='alert alert-ok'>"+msg+"</div>" if msg else ""}
+    <div class="info-box">
+      <strong>🔄 Sincronización total:</strong> detener un timer aquí o desde el bot de Telegram
+      produce exactamente el mismo efecto — ambos escriben en Supabase, que es la única fuente
+      de verdad. Un folio con el timer detenido <strong>nunca</strong> se borra automáticamente.<br>
+      🟢 = tarea viva en este proceso · ⚪ = sólo en la BD (se revive al reiniciar)
+    </div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Folio / Titular</th><th>Vehículo</th><th>Restante</th><th>Acciones</th></tr></thead>
+      <tbody>{filas or '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">Sin timers activos</td></tr>'}</tbody>
+    </table></div>
+    <div class="mt-3"><a href="/panel/admin" class="btn btn-outline btn-sm">← Panel</a></div>"""
+    return HTMLResponse(page("Timers", "Timers Activos — Tlaxcala", contenido))
+
+
+@app.post("/panel/timer/detener/{folio}")
+async def panel_detener_timer(request: Request, folio: str):
+    """Detiene el timer desde la web. Mismo efecto que el botón de Telegram."""
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login", status_code=303)
+    r = await detener_timer_global(folio, "panel_web_detener", estado="TIMER_DETENIDO")
+    if not r["ok"]:
+        return RedirectResponse(url=f"/panel/timers?msg={quote(f'⚠️ Folio {folio.upper()} no encontrado')}", status_code=303)
+    if r.get("user_id"):
+        with suppress(Exception):
+            await bot.send_message(r["user_id"],
+                f"⏹️ TIMER DETENIDO — TLAXCALA\nFolio: {r['folio']}\nTitular: {r.get('nombre','')}\n"
+                f"Un administrador detuvo el timer. Tu folio NO será eliminado.\n\n📋 Use /tlaxcala para otro permiso.")
+    aviso = "Timer de " + r["folio"] + " detenido ⏹️ (sincronizado con Telegram)"
+    return RedirectResponse(url=f"/panel/timers?msg={quote(aviso)}", status_code=303)
+
+
+@app.post("/panel/timer/reiniciar/{folio}")
+async def panel_reiniciar_timer(request: Request, folio: str):
+    """Vuelve a arrancar un timer de 36h para un folio."""
+    if not request.session.get("admin"):
+        return RedirectResponse(url="/panel/login", status_code=303)
+    folio = folio.strip().upper()
+    row = await asyncio.to_thread(_leer_estado_folio, folio)
+    if row in (None, "ERROR"):
+        return RedirectResponse(url=f"/panel/timers?msg={quote(f'⚠️ Folio {folio} no encontrado')}", status_code=303)
+    await iniciar_timer_36h(row.get("user_id") or 0, folio, row.get("nombre", "") or "")
+    return RedirectResponse(url=f"/panel/timers?msg={quote(f'Timer de {folio} reiniciado (36h)')}", status_code=303)
 
 # ===================== FOLIOS =====================
 
@@ -1054,20 +1350,28 @@ async def admin_folios(request: Request):
     msg_html = f'<div class="alert alert-ok">{msg}</div>' if msg else ""
     filas = ""
     for f in folios:
+        folio_id = f.get("folio", "")
         pago = f.get("estado_pago", "VALIDADO") or "VALIDADO"
         ec   = f.get("estado_calc", "")
         bp   = '<span class="bp bp-p">PEND</span>' if pago == "PENDIENTE_PAGO" else '<span class="bp bp-v">OK</span>'
         be   = '<span class="bp bp-vig">VIG</span>' if ec == "VIGENTE" else '<span class="bp bp-ven">VEN</span>'
-        bval = f'<form method="POST" action="/panel/validar/{f["folio"]}" style="display:inline"><button class="btn btn-success btn-sm" onclick="return confirm(\'¿Validar?\')">✅</button></form> ' if pago == "PENDIENTE_PAGO" else ""
+        # Badge del timer leído desde la BD
+        if f.get("timer_activo"):
+            bt = '<span class="bp bp-t">⏱ ON</span>'
+            btn_timer = f'<form method="POST" action="/panel/timer/detener/{folio_id}" style="display:inline"><button class="btn btn-warn btn-sm" onclick="return confirm(\'¿Detener timer? El folio NO se borra.\')">⏹️</button></form> '
+        else:
+            bt = '<span class="bp bp-td">⏱ OFF</span>'
+            btn_timer = ""
+        bval = f'<form method="POST" action="/panel/validar/{folio_id}" style="display:inline"><button class="btn btn-success btn-sm" onclick="return confirm(\'¿Validar?\')">✅</button></form> ' if pago == "PENDIENTE_PAGO" else ""
         pdf  = f.get("pdf_url", "")
         bpdf = f'<a href="{pdf}" target="_blank" class="btn btn-sm" style="background:{C1};color:white">📄</a> ' if pdf else ""
         filas += f"""<tr>
-          <td><strong style="color:{C1}">{f.get("folio","")}</strong><br><small style="color:#999">{f.get("creado_por","")}</small></td>
-          <td>{f.get("nombre","")[:18]}</td>
+          <td><strong style="color:{C1}">{folio_id}</strong><br><small style="color:#999">{f.get("creado_por","")}</small></td>
+          <td>{(f.get("nombre","") or "")[:18]}</td>
           <td>{f.get("marca","")} {f.get("linea","")}<br><small>{f.get("anio","")}</small></td>
           <td>{str(f.get("fecha_expedicion",""))[:10]}<br>{str(f.get("fecha_vencimiento",""))[:10]}</td>
-          <td>{be} {bp}</td>
-          <td>{bval}{bpdf}<a href="/consulta/{f.get('folio','')}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
+          <td>{be} {bp}<br>{bt}</td>
+          <td>{btn_timer}{bval}{bpdf}<a href="/consulta/{folio_id}" target="_blank" class="btn btn-sm btn-outline">🔗</a></td>
         </tr>"""
     filtros = f"""<div class="filter-bar">
       <form method="GET" style="display:contents">
@@ -1103,22 +1407,22 @@ async def admin_folios(request: Request):
 
 @app.post("/panel/validar/{folio}")
 async def validar_pago(request: Request, folio: str):
+    """Valida el pago desde la web. Detiene el timer igual que el bot de Telegram."""
     if not request.session.get("admin"):
         return RedirectResponse(url="/panel/login", status_code=303)
-    folio = folio.strip().upper()
-    try:
-        supabase.table("folios_registrados").update({"estado_pago": "VALIDADO"}).eq("folio", folio).execute()
-        if folio in timers_activos:
-            uid = timers_activos[folio]["user_id"]
-            nombre = timers_activos[folio].get("nombre", "")
-            cancelar_timer_folio(folio)
-            try:
-                await bot.send_message(uid, f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {folio}\nTitular: {nombre}\nTu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"[VALIDAR] Error: {e}")
-    return RedirectResponse(url=f"/panel/folios?msg={quote(f'Folio {folio} validado ✅')}", status_code=303)
+    r = await detener_timer_global(folio, "panel_web_validar", estado_pago="VALIDADO")
+    if not r["ok"]:
+        return RedirectResponse(url=f"/panel/folios?msg={quote(f'⚠️ Folio {folio.upper()} no encontrado')}", status_code=303)
+    with suppress(Exception):
+        await asyncio.to_thread(lambda: supabase.table("folios_registrados").update({
+            "fecha_comprobante": datetime.now().isoformat()
+        }).eq("folio", r["folio"]).execute())
+    if r.get("user_id"):
+        with suppress(Exception):
+            await bot.send_message(r["user_id"],
+                f"✅ PAGO VALIDADO — TLAXCALA\nFolio: {r['folio']}\nTitular: {r.get('nombre','')}\n"
+                f"Tu permiso está activo.\n\n📋 Use /tlaxcala para otro permiso.")
+    return RedirectResponse(url=f"/panel/folios?msg={quote('Folio ' + r['folio'] + ' validado ✅ (timer detenido en Telegram también)')}", status_code=303)
 
 @app.get("/panel/pdf/{folio}")
 async def descargar_pdf_panel(folio: str, request: Request):
@@ -1193,11 +1497,13 @@ async def registro_admin_post(request: Request,
                      "color": color.upper(), "nombre": nombre.upper(), "cve_vehicular": cve_vehicular.upper(),
                      "fecha_exp": fe.strftime("%d/%m/%Y"), "fecha_ven": fv.strftime("%d/%m/%Y"),
                      "fecha_exp_dt": datetime.combine(fe, datetime.min.time()).replace(tzinfo=tz)}
+        # Permiso de admin: nace VALIDADO y SIN timer
         supabase.table("folios_registrados").insert({"folio": fg, "marca": marca.upper(), "linea": linea.upper(),
             "anio": anio, "numero_serie": numero_serie.upper(), "numero_motor": numero_motor.upper(),
             "color": color.upper(), "nombre": nombre.upper(), "cve_vehicular": cve_vehicular.upper(),
             "fecha_expedicion": fe.isoformat(), "fecha_vencimiento": fv.isoformat(), "entidad": ENTIDAD,
-            "estado": "ACTIVO", "estado_pago": "VALIDADO", "creado_por": request.session.get("username", "admin")}).execute()
+            "estado": "ACTIVO", "estado_pago": "VALIDADO", "timer_activo": False,
+            "creado_por": request.session.get("username", "admin")}).execute()
         pdf_url = await asyncio.to_thread(generar_subir_y_guardar_pdf, datos_pdf)
         return RedirectResponse(url=f"/panel/folios?msg={quote(f'Permiso {fg} generado ✅')}&pdf={quote(pdf_url)}", status_code=303)
     except Exception as e:
@@ -1326,11 +1632,12 @@ async def registro_usuario_post(request: Request,
         fe = datetime.strptime(fecha_inicio, "%Y-%m-%d").replace(tzinfo=tz) if fecha_inicio else datetime.now(tz)
         fv = fe + timedelta(days=30)
         fg = generar_folio()
+        # Folio de usuario con cupo: nace VALIDADO y SIN timer
         supabase.table("folios_registrados").insert({"folio": fg, "marca": marca.upper(), "linea": linea.upper(),
             "anio": anio, "numero_serie": serie.upper(), "numero_motor": motor.upper(),
             "color": color.upper(), "nombre": nombre.upper(), "cve_vehicular": cve_vehicular.upper(),
             "fecha_expedicion": fe.date().isoformat(), "fecha_vencimiento": fv.date().isoformat(),
-            "entidad": ENTIDAD, "estado": "ACTIVO", "estado_pago": "VALIDADO",
+            "entidad": ENTIDAD, "estado": "ACTIVO", "estado_pago": "VALIDADO", "timer_activo": False,
             "user_id": request.session.get("user_id"), "creado_por": request.session["username"]}).execute()
         datos_pdf = {"folio": fg, "marca": marca.upper(), "linea": linea.upper(), "anio": anio,
                      "serie": serie.upper(), "motor": motor.upper(), "cve_vehicular": cve_vehicular.upper(),
@@ -1609,6 +1916,11 @@ async def api_update_cell(request: Request):
     if tabla not in TABLAS_DISPONIBLES or not col or not pk_val:
         return {"ok": False, "error": "datos inválidos"}
     try:
+        # Si tocan timer_activo a mano, sincronizar la tarea local
+        if tabla == "folios_registrados" and col == "timer_activo":
+            if str(val).lower() in ("false", "0", "no", ""):
+                await detener_timer_global(str(pk_val), "edicion_manual_tabla")
+                return {"ok": True}
         supabase.table(tabla).update({col: val or None}).eq(pk_col, pk_val).execute()
         return {"ok": True}
     except Exception as e:
@@ -1625,17 +1937,44 @@ async def api_delete_row(request: Request):
     if tabla not in TABLAS_DISPONIBLES or not pk_val:
         return {"ok": False, "error": "datos inválidos"}
     try:
+        if tabla == "folios_registrados":
+            cancelar_timer_folio(str(pk_val).strip().upper())
         supabase.table(tabla).delete().eq(pk_col, pk_val).execute()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+# ===================== API TIMERS (por si quieres consumirla desde fuera) =====================
+
+@app.get("/api/timer/{folio}")
+async def api_estado_timer(folio: str):
+    """Estado real del timer de un folio, leído de la BD."""
+    folio = folio.strip().upper()
+    row = await asyncio.to_thread(_leer_estado_folio, folio)
+    if row in (None, "ERROR"):
+        return {"ok": False, "folio": folio, "error": "no encontrado"}
+    return {
+        "ok": True,
+        "folio": folio,
+        "timer_activo": bool(row.get("timer_activo")),
+        "estado": row.get("estado"),
+        "estado_pago": row.get("estado_pago"),
+        "en_memoria": folio in timers_activos,
+    }
+
 # ===================== HEALTH =====================
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "1.0", "entidad": ENTIDAD,
-            "timers_activos": len(timers_activos),
+    timers_db = 0
+    try:
+        r = supabase.table("folios_registrados").select("folio").eq("timer_activo", True).eq("entidad", ENTIDAD).execute()
+        timers_db = len(r.data or [])
+    except Exception:
+        pass
+    return {"status": "healthy", "version": "1.1", "entidad": ENTIDAD,
+            "timers_memoria": len(timers_activos),
+            "timers_bd": timers_db,
             "siguiente_folio": f"{FOLIO_PREFIJO}{_folio_counter['siguiente']}"}
 
 if __name__ == "__main__":
