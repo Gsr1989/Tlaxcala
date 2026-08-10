@@ -134,7 +134,10 @@ async def detener_timer_global(folio: str, motivo: str,
                                estado_pago: str = None, estado: str = None) -> dict:
     """
     ÚNICA vía para detener un timer. La usan el bot de Telegram Y el panel web.
-    Escribe en Supabase (fuente de verdad) y cancela la tarea local si existe.
+    Escribe en Supabase (fuente de verdad) con RETRY.
+    
+    ⚠️ CRÍTICO: Intenta actualizar BD hasta 3 veces. Solo después cancela tarea local.
+    Si Supabase falla, NO cancela memoria — la BD es la fuente de verdad.
     """
     folio = folio.strip().upper()
     row = await asyncio.to_thread(_leer_estado_folio, folio)
@@ -153,17 +156,33 @@ async def detener_timer_global(folio: str, motivo: str,
     if estado:
         parches["estado"] = estado
 
-    ok_db = True
-    try:
-        await asyncio.to_thread(
-            lambda: supabase.table("folios_registrados").update(parches).eq("folio", folio).execute()
-        )
-    except Exception as e:
-        ok_db = False
-        print(f"[TIMER] Error deteniendo {folio} en BD: {e}")
+    # ── RETRY: intentar hasta 3 veces con backoff ──────────────────
+    ok_db = False
+    ultimo_error = None
+    for intento in range(3):
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("folios_registrados").update(parches).eq("folio", folio).execute()
+            )
+            ok_db = True
+            print(f"[TIMER] BD actualizada {folio} en intento {intento + 1}")
+            break
+        except Exception as e:
+            ultimo_error = e
+            if intento < 2:
+                await asyncio.sleep(0.5 * (2 ** intento))  # backoff: 0.5s, 1s, 2s
+                print(f"[TIMER] Reintentando {folio}... (intento {intento + 2}/3)")
+            else:
+                print(f"[TIMER] ❌ ERROR CRÍTICO deteniendo {folio} en BD tras 3 intentos: {e}")
 
-    cancelado_mem = cancelar_timer_folio(folio)
-    print(f"[TIMER] STOP {folio} motivo={motivo} db={ok_db} mem={cancelado_mem}")
+    # ── Solo si la BD se actualizó, cancela la tarea local ─────────
+    cancelado_mem = False
+    if ok_db:
+        cancelado_mem = cancelar_timer_folio(folio)
+        print(f"[TIMER] STOP {folio} motivo={motivo} db=✅ mem={cancelado_mem}")
+    else:
+        print(f"[TIMER] ⚠️ NO se canceló tarea local de {folio} — BD falló ({ultimo_error})")
+
     return {
         "ok": ok_db,
         "folio": folio,
